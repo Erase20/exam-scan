@@ -4,6 +4,11 @@ set -e
 cd "$(dirname "$0")"
 source ./env.sh
 
+# git 仓库布局（直接 clone 部署）时，ocr-service 在仓库根目录而不是 deploy/linux 下
+if [ ! -f "$OCR_DIR/requirements.txt" ] && [ -f "$APP_ROOT/../../ocr-service/requirements.txt" ]; then
+  OCR_DIR="$APP_ROOT/../../ocr-service"
+fi
+
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then
   SUDO="sudo"
