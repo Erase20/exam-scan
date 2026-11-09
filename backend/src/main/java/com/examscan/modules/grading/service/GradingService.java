@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.file.Files;
@@ -141,6 +142,24 @@ public class GradingService {
         List<?> cells = pageCellsOf(layout, pageIndex, pageH);
         Map<String, Object> pageLayout = new LinkedHashMap<>();
         pageLayout.put("cells", cells);
+
+        // 信息区（姓名/班级/手写考号）每页都绘制：先识别本页考生信息，
+        // 用于「根据姓名/班级/考号识别考生」与多页答题卡的自动归并。
+        // 信息区布局坐标是首页坐标系，当前页要按页号平移
+        boolean ocrReady = ocrClient.isAvailable();
+        int infoYOff = pageIndex * pageH;
+        String[] pageStudent = ocrStudentInfo(layout, norm, ocrReady, infoYOff);
+
+        // 未显式指定合并目标时，按考号/姓名自动归并：同一考生已有多页阅卷记录
+        // 且尚未包含本页题目时，把本页明细合并进去，避免同一考生被拆成多条记录
+        if (mergeInto == null) {
+            Long autoTarget = findAutoMergeTarget(sheet.getId(), pageStudent, cells);
+            if (autoTarget != null) {
+                log.info("第 {} 页自动归并到阅卷记录 {}：考号={}，姓名={}",
+                        pageIndex + 1, autoTarget, pageStudent[0], pageStudent[1]);
+                mergeInto = autoTarget;
+            }
+        }
 
         List<Map<String, Object>> details = new ArrayList<>();
         BigDecimal objectiveScore = BigDecimal.ZERO;
@@ -325,13 +344,15 @@ public class GradingService {
                     cropAnswerCells(pageLayout, norm, existing, details, useOcr);
                 } catch (Exception ignored) {
                 }
-                // 姓名/班级/学号信息区只在首页，故仅首页做 OCR
+                // 姓名/班级/学号信息区每页都有：首页保存选区截图；
+                // 合并页缺失的考生信息字段用本页识别结果补全（不覆盖人工确认过的内容）
                 if (pageIndex == 0) {
                     try {
-                        cropStudentInfo(layout, norm, existing, ocrClient.isAvailable());
+                        applyStudentInfo(layout, norm, existing, ocrReady, pageStudent, true, 0);
                     } catch (Exception ignored) {
                     }
                 }
+                fillMissingStudentInfo(existing, pageStudent);
                 return gradeOut(existing, prev, useOcr);
             }
         }
@@ -339,8 +360,13 @@ public class GradingService {
         GradeSheet gs = new GradeSheet();
         gs.setSheetId(sheet.getId());
         gs.setPaperId(paperId);
-        gs.setStudentNo(layoutStudentNo(layout, norm));
-        gs.setStudentName("待确认");
+        // 考生识别：考号优先用旧版涂卡识别结果（完整 6-8 位数字），否则以手写 OCR 为准；
+        // 姓名/班级直接采用本页信息区识别结果，识别不出时待人工补录
+        String bubbleNo = layoutStudentNo(layout, norm);
+        gs.setStudentNo(bubbleNo != null && bubbleNo.matches("\\d{6,8}") ? bubbleNo
+                : (pageStudent[0] == null ? "" : pageStudent[0]));
+        gs.setStudentName(pageStudent[1] == null || pageStudent[1].isBlank() ? "待确认" : pageStudent[1]);
+        gs.setClassName(pageStudent[2] == null ? "" : pageStudent[2]);
         gs.setObjectiveScore(objectiveScore);
         gs.setSubjectiveScore(BigDecimal.ZERO);
         gs.setTotalScore(total);
@@ -368,10 +394,9 @@ public class GradingService {
             }
         }
 
-        // 姓名/班级/学号：不管 ocr 还是 fast 模式都必须 OCR，只取决于 OCR 服务是否可用；
-        // 识别不出一律保留截图供人工辨认
+        // 姓名/班级/学号：保存选区截图供人工辨认（识别结果已由每页信息区 OCR 得出）
         try {
-            cropStudentInfo(layout, norm, gs, ocrClient.isAvailable());
+            applyStudentInfo(layout, norm, gs, ocrReady, pageStudent, false, infoYOff);
         } catch (Exception e) {
             log.warn("姓名/班级识别失败: {}", e.getMessage());
         }
@@ -521,10 +546,11 @@ public class GradingService {
     }
 
     private String layoutStudentNo(Map<?, ?> layout, BufferedImage norm) {
-        // 考号涂卡区识别：对每位数字取填充率最高的位置
+        // 考号涂卡区识别：对每位数字取填充率最高的位置。
+        // 新版答题卡不再生成涂卡区（info 里没有 idBubbleStartX），考号以手写 OCR 为准
         try {
             Map<?, ?> info = (Map<?, ?>) layout.get("info");
-            if (info == null) {
+            if (info == null || info.get("idBubbleStartX") == null) {
                 return "";
             }
             int digits = num(info.get("idDigits"), 8);
@@ -652,52 +678,47 @@ public class GradingService {
     }
 
     /**
-     * 信息区处理：姓名 / 班级 / 学号三项都做 OCR，与阅卷模式无关；
-     * 不论识别成功与否，一律保存完整选区截图（单字段图 + 整块信息区图）供人工辨认。
+     * 信息区处理：保存姓名 / 班级 / 手写考号选区截图（单字段图 + 整块信息区图）供人工辨认；
+     * 考生字段写入调用方预识别的 ocrText。
      *
-     * @param ocrAvailable OCR 服务是否可用；不可用时跳过识别，但截图照常保存
+     * @param fillMissing true=只补缺失字段（多页合并时，不覆盖人工确认/已识别内容）；
+     *                    false=直接写入识别结果（新建记录）
+     * @param ocrAvailable OCR 服务是否可用；不可用时仅保存截图
      */
-    private void cropStudentInfo(Map<?, ?> layout, BufferedImage norm, GradeSheet gs, boolean ocrAvailable) {
-        Map<?, ?> info = (Map<?, ?>) layout.get("info");
+    private void applyStudentInfo(Map<?, ?> layout, BufferedImage norm, GradeSheet gs,
+                                  boolean ocrAvailable, String[] ocrText, boolean fillMissing, int yOff) {
+        Map<?, ?> info = infoShifted((Map<?, ?>) layout.get("info"), yOff);
         if (info == null) {
             return;
         }
         try {
             Path dir = Paths.get(storageRoot, "grade");
             Files.createDirectories(dir);
+            String[] t = ocrText == null ? new String[]{"", "", ""} : ocrText;
             boolean changed = false;
             Map<?, ?> nb = (Map<?, ?>) info.get("nameBox");
             Map<?, ?> cb = (Map<?, ?>) info.get("classBox");
             Map<?, ?> hb = (Map<?, ?>) info.get("idHandBox");
-            if (nb != null && cropRegion(norm, nb, dir.resolve(gs.getId() + "-name.jpg"), 24)) {
-                if (ocrAvailable) {
-                    String t = ocrInfoCrop(dir.resolve(gs.getId() + "-name.jpg"), "姓名");
-                    if (t != null) {
-                        gs.setStudentName(t);
-                        changed = true;
-                    }
-                }
+            if (nb != null && cropRegion(norm, nb, dir.resolve(gs.getId() + "-name.jpg"), 24)
+                    && !blank(t[1])
+                    && (!fillMissing || blank(gs.getStudentName()) || "待确认".equals(gs.getStudentName()))) {
+                gs.setStudentName(t[1]);
+                changed = true;
             }
-            if (cb != null && cropRegion(norm, cb, dir.resolve(gs.getId() + "-class.jpg"), 24)) {
-                if (ocrAvailable) {
-                    String t = ocrInfoCrop(dir.resolve(gs.getId() + "-class.jpg"), "班级");
-                    if (t != null) {
-                        gs.setClassName(t);
-                        changed = true;
-                    }
-                }
+            if (cb != null && cropRegion(norm, cb, dir.resolve(gs.getId() + "-class.jpg"), 24)
+                    && !blank(t[2])
+                    && (!fillMissing || blank(gs.getClassName()))) {
+                gs.setClassName(t[2]);
+                changed = true;
             }
-            if (hb != null && cropRegion(norm, hb, dir.resolve(gs.getId() + "-id.jpg"), 24)) {
-                if (ocrAvailable) {
-                    String t = ocrIdCrop(dir.resolve(gs.getId() + "-id.jpg"));
+            if (hb != null && cropRegion(norm, hb, dir.resolve(gs.getId() + "-id.jpg"), 24)
+                    && !blank(t[0])
                     // 涂点考号已完整识别（8 位全数字）时保留，否则用手写 OCR 结果补全
-                    if (t != null && (gs.getStudentNo() == null || !gs.getStudentNo().matches("\\d{6,8}"))) {
-                        gs.setStudentNo(t);
-                        changed = true;
-                    }
-                }
+                    && (gs.getStudentNo() == null || !gs.getStudentNo().matches("\\d{6,8}"))) {
+                gs.setStudentNo(t[0]);
+                changed = true;
             }
-            // 整块信息区截图：姓名、班级、考号涂点、考号手写格完整包含，人工一次看全
+            // 整块信息区截图：姓名、班级、考号手写格完整包含，人工一次看全
             Map<String, Object> whole = unionInfoBox(info);
             if (whole != null) {
                 cropRegion(norm, whole, dir.resolve(gs.getId() + "-info.jpg"), 24);
@@ -710,7 +731,209 @@ public class GradingService {
         }
     }
 
-    /** 合并信息区各选区（含考号涂点区）为一块完整矩形 */
+    /** 合并页：已有记录缺失的考生信息字段用本页识别结果补全（不覆盖人工确认/已识别内容） */
+    private void fillMissingStudentInfo(GradeSheet gs, String[] pinfo) {
+        if (gs == null || pinfo == null) {
+            return;
+        }
+        boolean changed = false;
+        if (blank(gs.getStudentNo()) && !blank(pinfo[0])) {
+            gs.setStudentNo(pinfo[0]);
+            changed = true;
+        }
+        if ((blank(gs.getStudentName()) || "待确认".equals(gs.getStudentName())) && !blank(pinfo[1])) {
+            gs.setStudentName(pinfo[1]);
+            changed = true;
+        }
+        if (blank(gs.getClassName()) && !blank(pinfo[2])) {
+            gs.setClassName(pinfo[2]);
+            changed = true;
+        }
+        if (changed) {
+            gradeSheetMapper.updateById(gs);
+        }
+    }
+
+    /** 每页信息区（姓名/班级/手写考号）识别：返回 {考号, 姓名, 班级}，识别不出对应项为空串 */
+    private String[] ocrStudentInfo(Map<?, ?> layout, BufferedImage norm, boolean ocrAvailable, int yOff) {
+        String[] out = {"", "", ""};
+        Map<?, ?> info = infoShifted((Map<?, ?>) layout.get("info"), yOff);
+        if (info == null || !ocrAvailable) {
+            return out;
+        }
+        try {
+            if (info.get("idHandBox") instanceof Map<?, ?> hb) {
+                out[0] = ocrIdRegion(cropBytes(norm, hb, 24));
+            }
+            if (info.get("nameBox") instanceof Map<?, ?> nb) {
+                out[1] = ocrInfoRegion(cropBytes(norm, nb, 24), "姓名");
+            }
+            if (info.get("classBox") instanceof Map<?, ?> cb) {
+                out[2] = ocrInfoRegion(cropBytes(norm, cb, 24), "班级");
+            }
+        } catch (Exception e) {
+            log.warn("考生信息区识别失败: {}", e.getMessage());
+        }
+        return out;
+    }
+
+    /** 从校正后的答题卡图裁剪选区并返回字节（裁剪失败返回 null） */
+    private byte[] cropBytes(BufferedImage norm, Map<?, ?> box, int pad) {
+        try {
+            int x = Math.max(0, num(box.get("x"), 0) - pad);
+            int y = Math.max(0, num(box.get("y"), 0) - pad);
+            int w = Math.min(num(box.get("w"), 0) + 2 * pad, norm.getWidth() - x);
+            int h = Math.min(num(box.get("h"), 0) + 2 * pad, norm.getHeight() - y);
+            if (w <= 10 || h <= 10) {
+                return null;
+            }
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ImageIO.write(norm.getSubimage(x, y, w, h), "jpg", bos);
+            return bos.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 考号手写 OCR：1~8 位数字都采纳（短学号也能识别）；普通 OCR 识别不出时用增强识别再试一次 */
+    private String ocrIdRegion(byte[] img) {
+        if (img == null || !ocrClient.isAvailable()) {
+            return "";
+        }
+        try {
+            String text = digitsOnly(flat(String.join("", ocrClient.recognizeText(img))));
+            if (text.matches("\\d{1,8}")) {
+                return text;
+            }
+            text = digitsOnly(flat(ocrClient.recognizeTextBest(img)));
+            return text.matches("\\d{1,8}") ? text : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** 姓名/班级 OCR：剔除标签、冒号与印刷下划线；普通 OCR 识别不出时用增强识别再试一次（手写小字识别率更高） */
+    private String ocrInfoRegion(byte[] img, String label) {
+        if (img == null || !ocrClient.isAvailable()) {
+            return "";
+        }
+        try {
+            String text = cleanInfoText(String.join("", ocrClient.recognizeText(img)), label);
+            if (validInfoText(text)) {
+                return text;
+            }
+            text = cleanInfoText(flat(ocrClient.recognizeTextBest(img)), label);
+            return validInfoText(text) ? text : "";
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String flat(String s) {
+        return s == null ? "" : String.join("", s.split("\\n"));
+    }
+
+    private static String digitsOnly(String s) {
+        return s == null ? "" : s.replaceAll("[^0-9]", "");
+    }
+
+    private static String cleanInfoText(String raw, String label) {
+        return (raw == null ? "" : raw).replace(label, "")
+                .replaceAll("[：:\\s_\\-—－]", "").trim();
+    }
+
+    /** 中文需 2 字以上（防印刷下划线被误认成「一」），含字母/数字的混合短文本（六1、6A、三(2)班）也可 */
+    private static boolean validInfoText(String text) {
+        return !text.isEmpty() && text.length() <= 16
+                && text.matches("[\\u4e00-\\u9fa5A-Za-z0-9()（）·]+")
+                && (text.matches(".*[A-Za-z0-9].*") || text.length() >= 2);
+    }
+
+    /**
+     * 多页答题卡自动归并目标：在同一答题卡模板的已有阅卷记录里，
+     * 找「考号相同（或姓名相同）且尚未包含本页任何题目」的记录。
+     * 找不到返回 null（新建记录）；本页题目与记录重复说明是重复扫描，不归并。
+     */
+    private Long findAutoMergeTarget(Long sheetId, String[] student, List<?> cells) {
+        Set<Long> pageItems = new HashSet<>();
+        for (Object o : cells) {
+            if (o instanceof Map<?, ?> c && c.get("paperItemId") instanceof Number n) {
+                pageItems.add(n.longValue());
+            }
+        }
+        if (pageItems.isEmpty() || student == null) {
+            return null;
+        }
+        String no = blank(student[0]) ? "" : student[0].trim();
+        String name = blank(student[1]) || "待确认".equals(student[1]) ? "" : student[1].trim();
+        if (no.isBlank() && name.isBlank()) {
+            return null;
+        }
+        List<GradeSheet> candidates = gradeSheetMapper.selectList(new LambdaQueryWrapper<GradeSheet>()
+                .eq(GradeSheet::getSheetId, sheetId)
+                .orderByDesc(GradeSheet::getId));
+        for (GradeSheet g : candidates) {
+            boolean match = (!no.isBlank() && no.equals(trimToEmpty(g.getStudentNo())))
+                    || (!name.isBlank() && name.equals(trimToEmpty(g.getStudentName())));
+            if (!match) {
+                continue;
+            }
+            if (!detailContainsAny(g.getDetailJson(), pageItems)) {
+                return g.getId();
+            }
+        }
+        return null;
+    }
+
+    /** 明细里是否已包含给定题目（判断该页是否已合并过 / 是否重复扫描） */
+    private boolean detailContainsAny(String detailJson, Set<Long> itemIds) {
+        try {
+            List<?> raw = json.readValue(detailJson == null ? "[]" : detailJson, List.class);
+            for (Object o : raw) {
+                if (o instanceof Map<?, ?> d && d.get("paperItemId") instanceof Number n
+                        && itemIds.contains(n.longValue())) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
+    }
+
+    /**
+     * 把信息区各选区的 y 坐标平移到指定页（多页答题卡的信息区每页都绘制，
+     * 布局 JSON 里的坐标是首页坐标系，识别第 2 页及以后要按页号平移）。
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> infoShifted(Map<?, ?> info, int yOff) {
+        if (info == null || yOff == 0) {
+            return info == null ? null : new LinkedHashMap<>((Map<String, Object>) info);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : info.entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof Map<?, ?> b) {
+                Map<String, Object> nb = new LinkedHashMap<>((Map<String, Object>) b);
+                if (nb.get("y") instanceof Number n) {
+                    nb.put("y", n.intValue() + yOff);
+                }
+                out.put(String.valueOf(e.getKey()), nb);
+            } else {
+                out.put(String.valueOf(e.getKey()), v);
+            }
+        }
+        return out;
+    }
+
+    private static boolean blank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    private static String trimToEmpty(String s) {
+        return s == null ? "" : s.trim();
+    }
+
+    /** 合并信息区各选区（旧布局含考号涂点区）为一块完整矩形 */
     private Map<String, Object> unionInfoBox(Map<?, ?> info) {
         int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, maxX = 0, maxY = 0;
         for (String k : new String[]{"nameBox", "classBox", "idDigitBox", "idHandBox"}) {
@@ -722,16 +945,19 @@ public class GradingService {
                 maxY = Math.max(maxY, y + num(b.get("h"), 0));
             }
         }
-        int digits = num(info.get("idDigits"), 8);
-        int bx0 = num(info.get("idBubbleStartX"), 0);
-        int gx = num(info.get("idBubbleGapX"), 76);
-        int gy = num(info.get("idBubbleGapY"), 56);
-        int r = num(info.get("idBubbleR"), 20);
-        int startY = num(info.get("idStartY"), 0);
-        minX = Math.min(minX, bx0 - r);
-        minY = Math.min(minY, startY - r - 40);
-        maxX = Math.max(maxX, bx0 + (digits - 1) * gx + r);
-        maxY = Math.max(maxY, startY + 9 * gy + r);
+        // 旧版布局才有涂卡区几何参数，有才纳入合并范围
+        if (info.get("idBubbleStartX") != null) {
+            int digits = num(info.get("idDigits"), 8);
+            int bx0 = num(info.get("idBubbleStartX"), 0);
+            int gx = num(info.get("idBubbleGapX"), 76);
+            int gy = num(info.get("idBubbleGapY"), 56);
+            int r = num(info.get("idBubbleR"), 20);
+            int startY = num(info.get("idStartY"), 0);
+            minX = Math.min(minX, bx0 - r);
+            minY = Math.min(minY, startY - r - 40);
+            maxX = Math.max(maxX, bx0 + (digits - 1) * gx + r);
+            maxY = Math.max(maxY, startY + 9 * gy + r);
+        }
         if (minX >= maxX || minY >= maxY) {
             return null;
         }
@@ -763,43 +989,6 @@ public class GradingService {
         } catch (Exception e) {
             log.warn("选区截取失败: {}", e.getMessage());
             return false;
-        }
-    }
-
-    /** 学号手写 OCR：1~8 位数字都采纳（短学号也能识别）；识别不出返回 null，保留截图 */
-    private String ocrIdCrop(Path img) {
-        try {
-            if (!ocrClient.isAvailable()) {
-                return null;
-            }
-            String text = String.join("", ocrClient.recognizeText(Files.readAllBytes(img)))
-                    .replaceAll("[^0-9]", "");
-            return text.matches("\\d{1,8}") ? text : null;
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /** 姓名/班级 OCR：剔除标签、冒号与印刷下划线后，采纳合理的短文本；识别不出返回 null，保留截图 */
-    private String ocrInfoCrop(Path img, String label) {
-        try {
-            if (!ocrClient.isAvailable()) {
-                return null;
-            }
-            String text = String.join("", ocrClient.recognizeText(Files.readAllBytes(img)))
-                    .replace(label, "")
-                    .replaceAll("[：:\\s_\\-—－]", "")
-                    .trim();
-            if (text.isEmpty()) {
-                return null;
-            }
-            // 中文需 2 字以上（防印刷下划线被误认成「一」），含字母/数字的混合短文本（六1、6A、三(2)班）也可
-            boolean valid = text.length() <= 16
-                    && text.matches("[\\u4e00-\\u9fa5A-Za-z0-9()（）·]+")
-                    && (text.matches(".*[A-Za-z0-9].*") || text.length() >= 2);
-            return valid ? text : null;
-        } catch (Exception e) {
-            return null;
         }
     }
 

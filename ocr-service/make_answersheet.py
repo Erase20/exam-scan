@@ -49,27 +49,37 @@ def render(layout, answers, student_no, out_path):
     cb = info["classBox"]
     d.text((cb["x"], cb["y"] + 10), "班级：五(1)班", font=font(34), fill="black")
 
-    # 考号涂卡区
-    db = info["idDigitBox"]
-    d.text((db["x"], db["y"] - 20), "考号", font=font(30), fill="black")
+    # 考号：旧版布局画涂卡区；新版布局没有涂卡区，把考号手写进手写格
     digits = info["idDigits"]
-    bx0 = info["idBubbleStartX"]
-    gx = info["idBubbleGapX"]
-    gy = info["idBubbleGapY"]
-    r = info["idBubbleR"]
-    startY = info["idStartY"]
-    for i in range(digits):
-        x = bx0 + i * gx
-        for n in range(10):
-            cy = startY + n * gy
-            d.ellipse([x - r, cy - r, x + r, cy + r], outline="black", width=3)
-            d.text((x - 7, cy - 12), str(n), font=font(22), fill="black")
-    # 填涂考号 20240108
-    for i, ch in enumerate(student_no):
-        if ch.isdigit():
+    if "idBubbleStartX" in info:
+        db = info["idDigitBox"]
+        d.text((db["x"], db["y"] - 20), "考号", font=font(30), fill="black")
+        bx0 = info["idBubbleStartX"]
+        gx = info["idBubbleGapX"]
+        gy = info["idBubbleGapY"]
+        r = info["idBubbleR"]
+        startY = info["idStartY"]
+        for i in range(digits):
             x = bx0 + i * gx
-            cy = startY + int(ch) * gy
-            d.ellipse([x - r + 2, cy - r + 2, x + r - 2, cy + r - 2], fill="black")
+            for n in range(10):
+                cy = startY + n * gy
+                d.ellipse([x - r, cy - r, x + r, cy + r], outline="black", width=3)
+                d.text((x - 7, cy - 12), str(n), font=font(22), fill="black")
+        # 填涂考号
+        for i, ch in enumerate(student_no):
+            if ch.isdigit():
+                x = bx0 + i * gx
+                cy = startY + int(ch) * gy
+                d.ellipse([x - r + 2, cy - r + 2, x + r - 2, cy + r - 2], fill="black")
+    else:
+        hb = info.get("idHandBox")
+        if hb:
+            hx, hy = hb["x"], hb["y"]
+            d.text((hx, hy + 10), "考号", font=font(30), fill="black")
+            for i, ch in enumerate(student_no[:digits]):
+                if ch.isdigit():
+                    sqx = hx + 90 + i * 80
+                    d.text((sqx + 12, hy + 2), ch, font=font(44), fill="black")
 
     # 客观题填涂
     for cell in layout["objective"]["cells"]:

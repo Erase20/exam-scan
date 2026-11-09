@@ -205,42 +205,87 @@ public class GradeStatsService {
         return list;
     }
 
-    /** 考生明细，按总分降序（同分并列名次） */
+    /**
+     * 考生明细，按总分降序（同分并列名次）。
+     * 同一考生（考号相同，其次姓名相同）的多条阅卷记录汇总为一条：客观/主观/总分求和，
+     * 并保留记录份数——多页答题卡未合并或重复扫描时不再出现同一个人占多行。
+     */
     private List<Map<String, Object>> ranking(List<GradeSheet> rows, BigDecimal full) {
-        List<GradeSheet> sorted = new ArrayList<>(rows);
-        Comparator<GradeSheet> byScoreDesc = Comparator
-                .comparing((GradeSheet g) -> score(g))
+        Map<String, List<GradeSheet>> groups = new LinkedHashMap<>();
+        for (GradeSheet g : rows) {
+            groups.computeIfAbsent(studentKey(g), k -> new ArrayList<>()).add(g);
+        }
+        List<List<GradeSheet>> sorted = new ArrayList<>(groups.values());
+        Comparator<List<GradeSheet>> byScoreDesc = Comparator
+                .comparing((List<GradeSheet> g) -> sumScore(g))
                 .reversed()
-                .thenComparing(g -> g.getId() == null ? 0L : g.getId());
+                .thenComparing(g -> g.get(0).getId() == null ? 0L : g.get(0).getId());
         sorted.sort(byScoreDesc);
         List<Map<String, Object>> list = new ArrayList<>();
         BigDecimal prev = null;
         int rank = 0;
         for (int i = 0; i < sorted.size(); i++) {
-            GradeSheet g = sorted.get(i);
-            BigDecimal s = score(g);
+            List<GradeSheet> group = sorted.get(i);
+            GradeSheet first = group.get(0);
+            BigDecimal obj = group.stream().map(g -> nz(g.getObjectiveScore()))
+                    .reduce(ZERO, BigDecimal::add);
+            BigDecimal subj = group.stream().map(g -> nz(g.getSubjectiveScore()))
+                    .reduce(ZERO, BigDecimal::add);
+            BigDecimal s = sumScore(group);
             if (prev == null || s.compareTo(prev) != 0) {
                 rank = i + 1;
             }
             prev = s;
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("rank", rank);
-            m.put("id", g.getId());
-            m.put("className", displayClass(g.getClassName()));
-            m.put("studentName", g.getStudentName());
-            m.put("studentNo", g.getStudentNo());
-            m.put("objectiveScore", scale1(nz(g.getObjectiveScore())));
-            m.put("subjectiveScore", scale1(nz(g.getSubjectiveScore())));
+            m.put("id", first.getId());
+            m.put("className", displayClass(group.stream()
+                    .map(GradeSheet::getClassName)
+                    .filter(v -> v != null && !v.isBlank())
+                    .findFirst().orElse(null)));
+            m.put("studentName", group.stream()
+                    .map(GradeSheet::getStudentName)
+                    .filter(v -> v != null && !v.isBlank() && !"待确认".equals(v))
+                    .findFirst().orElse(first.getStudentName()));
+            m.put("studentNo", group.stream()
+                    .map(GradeSheet::getStudentNo)
+                    .filter(v -> v != null && !v.isBlank() && v.contains("_") == false)
+                    .findFirst().orElse(first.getStudentNo()));
+            m.put("recordCount", group.size());
+            m.put("objectiveScore", scale1(obj));
+            m.put("subjectiveScore", scale1(subj));
             m.put("totalScore", scale1(s));
             m.put("fullScore", full);
             m.put("scoreRate", full.signum() > 0
                     ? s.divide(full, 3, RoundingMode.HALF_UP).multiply(HUNDRED).setScale(1, RoundingMode.HALF_UP)
                     : ZERO);
-            m.put("status", g.getStatus());
-            m.put("createTime", g.getCreateTime());
+            m.put("status", first.getStatus());
+            m.put("createTime", group.stream()
+                    .map(GradeSheet::getCreateTime)
+                    .filter(Objects::nonNull)
+                    .min(Comparator.naturalOrder())
+                    .orElse(null));
             list.add(m);
         }
         return list;
+    }
+
+    /** 同一考生的分组键：考号优先，其次姓名+班级，都没有时按记录本身（不合并） */
+    private static String studentKey(GradeSheet g) {
+        String no = g.getStudentNo() == null ? "" : g.getStudentNo().trim();
+        if (!no.isBlank() && !no.contains("_")) {
+            return "N:" + no;
+        }
+        String name = g.getStudentName() == null ? "" : g.getStudentName().trim();
+        if (!name.isBlank() && !"待确认".equals(name)) {
+            String cls = g.getClassName() == null ? "" : g.getClassName().trim();
+            return "M:" + name + "|" + cls;
+        }
+        return "R:" + g.getId();
+    }
+
+    private static BigDecimal sumScore(List<GradeSheet> group) {
+        return group.stream().map(GradeStatsService::score).reduce(ZERO, BigDecimal::add);
     }
 
     /** 按阅卷先后顺序的得分序列，供折线图使用 */

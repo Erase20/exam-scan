@@ -162,8 +162,12 @@ function printSheet(row) {
       '/image?scale=1" onload="if(++n>=' + pages + ')window.print()"></div>'
   }
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>' + row.title + '</title>' +
-    '<style>@page{size:A4;margin:0}html,body{margin:0;padding:0}img{width:100%;display:block}' +
-    '.pg{page-break-after:always;break-after:page}.pg:last-child{page-break-after:auto;break-after:auto}</style>' +
+    '<style>@page{size:A4;margin:0}html,body{margin:0;padding:0}' +
+    // 每页容器固定 A4 尺寸并裁掉溢出：答题卡图（2480x3508）比 A4 纸比例略高，
+    // 若只按宽度缩放，每页会多出几毫米内容被挤到下一页，打印出现整页空白
+    '.pg{width:210mm;height:297mm;overflow:hidden;page-break-after:always;break-after:page}' +
+    '.pg:last-child{page-break-after:auto;break-after:auto}' +
+    'img{width:100%;height:100%;object-fit:contain;display:block}</style>' +
     '</head><body><script>var n=0;<\/script>' + imgs + '</body></html>'
   const w = window.open('', '_blank')
   if (!w) { ElMessage.warning('浏览器拦截了打印窗口，请允许弹窗后重试'); return }

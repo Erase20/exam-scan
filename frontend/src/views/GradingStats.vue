@@ -126,7 +126,7 @@
       <div class="page-card">
         <div class="card-head">
           <h3>成绩明细</h3>
-          <span>按总分降序，同分并列名次</span>
+          <span>同一考生多份记录已汇总求和；按总分降序，同分并列名次</span>
         </div>
         <el-table :data="stats.ranking" size="small" border max-height="420">
           <el-table-column prop="rank" label="名次" width="76" align="center">
@@ -138,6 +138,9 @@
           <el-table-column prop="studentName" label="姓名" min-width="100" />
           <el-table-column prop="studentNo" label="考号" min-width="120">
             <template #default="{ row }">{{ row.studentNo || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="份数" width="70" align="center">
+            <template #default="{ row }">{{ row.recordCount || 1 }}</template>
           </el-table-column>
           <el-table-column label="客观题" width="90" align="center">
             <template #default="{ row }">{{ fmt(row.objectiveScore) }}</template>

@@ -8,11 +8,13 @@ if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
 rem Java：优先 WorkBuddy JDK21，缺失则回退到 PyCharm JBR / PATH 里的 java
 set "JAVA_EXE=C:\Users\Administrator\.workbuddy\binaries\tools\jdk-21.0.2\bin\java.exe"
+if not exist "%JAVA_EXE%" set "JAVA_EXE=C:\Users\BlonMent\.jdks\openjdk-27.0.1.0.2\bin\java.exe"
 if not exist "%JAVA_EXE%" set "JAVA_EXE=C:\Program Files\JetBrains\PyCharm 2025.2.4\jbr\bin\java.exe"
 if not exist "%JAVA_EXE%" set "JAVA_EXE=java"
 
 rem Python（OCR 服务）：优先 examscan venv（含 rapidocr），缺失则回退
 set "PY_EXE=C:\Users\Administrator\.workbuddy\binaries\python\envs\examscan\Scripts\python.exe"
+if not exist "%PY_EXE%" set "PY_EXE=C:\Users\BlonMent\AppData\Local\Programs\Python\Python314\python.exe"
 if not exist "%PY_EXE%" set "PY_EXE=C:\Users\Administrator\AppData\Local\Programs\Python\Python313\python.exe"
 if not exist "%PY_EXE%" set "PY_EXE=python"
 

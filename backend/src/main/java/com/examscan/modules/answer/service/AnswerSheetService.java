@@ -38,9 +38,9 @@ import java.util.stream.Collectors;
  *
  * 生成的答题卡包含：
  *  - 四角定位标记（实心方块，用于扫描时的透视校正）
- *  - 顶部信息区：姓名 / 班级 / 考号的涂卡区（考号用 0-9 涂点）
+ *  - 顶部信息区：姓名 / 班级 / 手写考号格（每页都绘制，多页扫描均可识别考生；旧版兼容涂卡考号）
  *  - 客观题区：按 5 题一组排列，每题 A/B/C/D 四个涂点
- *  - 主观题区：预留答题框，标注题号与分值
+ *  - 主观题区：预留答题框，标注题号与分值；填空题每题独占一行
  *
  * 布局以 JSON 形式存储（坐标系按 300dpi A4 = 2480×3508 设计），
  * 阅卷端据此把识别到的涂点映射回题目。
@@ -143,19 +143,15 @@ public class AnswerSheetService {
                 "y", MARGIN + 8
         ));
 
-        // 信息区：考号 8 位 × 10 个数字涂点（正方形涂点）+ 考号手写格
+        // 信息区：姓名 / 班级 / 手写考号格。
+        // 不再生成考号涂卡区（旧版布局里 idBubble* 字段仍兼容渲染与识别），
+        // 考号统一以手写 + OCR 识别为准。
         int infoY = INFO_Y;
         layout.put("info", Map.of(
                 "nameBox", box(MARGIN + 40, infoY, 700, 80),
                 "classBox", box(MARGIN + 800, infoY, 500, 80),
                 "idDigits", 8,
-                "idStartY", infoY + 130,
-                "idDigitBox", box(MARGIN + 60, infoY + 120, 60, 500),
-                "idBubbleStartX", MARGIN + 160,
-                "idBubbleGapX", 76,
-                "idBubbleGapY", 56,
-                "idBubbleR", 20,
-                "idHandBox", box(MARGIN + 820, infoY + 130, 790, 100)
+                "idHandBox", box(MARGIN + 40, infoY + 110, 900, 100)
         ));
 
         // 按试卷标准大题顺序（sectionNo 升序）统一排布所有大题：
@@ -257,8 +253,9 @@ public class AnswerSheetService {
         List<Map<String, Object>> subjCells = new ArrayList<>();
         List<Map<String, Object>> heads = new ArrayList<>();
 
-        // 排版度量：dense 时全面收紧
-        int startY = INFO_Y + (dense ? 680 : 700);
+        // 排版度量：dense 时全面收紧。
+        // 信息区只占两行（姓名/班级 + 手写考号格），正文起始位置比旧版涂卡区（10 行涂点）大幅上移
+        int startY = INFO_Y + (dense ? 320 : 360);
         int headBlock = dense ? 74 : 90;       // 大题标题占位高
         int colCount = 5;                      // 选择题每行列数
         int judgeCols = dense ? 6 : colCount;  // 判断题只需 √/× 两个涂点，可放更多列
@@ -344,8 +341,8 @@ public class AnswerSheetService {
                 y += rows * cellH + gapBubble;
 
             } else if (fillSection) {
-                // 填空题：两列并排 + 单/双行横线，比整宽大框省一半以上版面
-                int fillCols = 2;
+                // 填空题：每题独占一整行 + 单/双行横线，作答空间更大、扫描裁剪更稳
+                int fillCols = 1;
                 int fillGap = 40;
                 int fillCellW = (PAGE_W - 2 * MARGIN - 80 - fillGap) / fillCols;
                 for (int r = 0; r < group.size(); r += fillCols) {
@@ -780,41 +777,51 @@ public class AnswerSheetService {
             Map<?, ?> info = (Map<?, ?>) layout.get("info");
             if (info != null) {
                 Map<?, ?> nb = (Map<?, ?>) info.get("nameBox");
-                g.drawString("姓名：________________", num(nb.get("x")), num(nb.get("y")) + 60);
                 Map<?, ?> cb = (Map<?, ?>) info.get("classBox");
-                g.drawString("班级：____________", num(cb.get("x")), num(cb.get("y")) + 60);
-
-                // 考号涂卡区
-                int digits = num(info.get("idDigits"));
-                int startY = num(info.get("idStartY"));
-                int bx0 = num(info.get("idBubbleStartX"));
-                int gx = num(info.get("idBubbleGapX"));
-                int gy = num(info.get("idBubbleGapY"));
-                int r = num(info.get("idBubbleR"));
-                Map<?, ?> db = (Map<?, ?>) info.get("idDigitBox");
-                g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
-                g.drawString("考号", num(db.get("x")), num(db.get("y")) - 10);
-                for (int d = 0; d < digits; d++) {
-                    int x = num(db.get("x")) + d * gx;
-                    for (int n = 0; n < 10; n++) {
-                        int cy = startY + n * gy;
-                        g.drawRect(bx0 + d * gx - r, cy - r, r * 2, r * 2);
-                        String numStr = String.valueOf(n);
-                        g.setFont(new Font("Arial", Font.PLAIN, 22));
-                        g.drawString(numStr, bx0 + d * gx - 6, cy + 8);
-                    }
-                }
-
-                // 考号手写格：涂点右侧一排方框，供手写考号，便于人工核对/识别
                 Map<?, ?> hb = (Map<?, ?>) info.get("idHandBox");
-                if (hb != null) {
-                    int hx = num(hb.get("x"));
-                    int hy = num(hb.get("y"));
-                    g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
-                    g.drawString("考号手写", hx, hy + 40);
-                    for (int d = 0; d < digits; d++) {
-                        int sqx = hx + 130 + d * 80;
-                        g.drawRect(sqx, hy, 64, 64);
+                int digits = num(info.get("idDigits"));
+                // 信息区每页都绘制：多页答题卡的任何一页扫描后都能识别考生（姓名/班级/手写考号）
+                for (int p = 0; p < pageCount; p++) {
+                    int oy = p * PAGE_H;
+                    if (nb != null) {
+                        g.drawString("姓名：________________", num(nb.get("x")), num(nb.get("y")) + 60 + oy);
+                    }
+                    if (cb != null) {
+                        g.drawString("班级：____________", num(cb.get("x")), num(cb.get("y")) + 60 + oy);
+                    }
+
+                    // 考号涂卡区：仅旧版布局才包含该字段，新版不再生成
+                    if (info.get("idBubbleStartX") != null) {
+                        int startY = num(info.get("idStartY"));
+                        int bx0 = num(info.get("idBubbleStartX"));
+                        int gx = num(info.get("idBubbleGapX"));
+                        int gy = num(info.get("idBubbleGapY"));
+                        int r = num(info.get("idBubbleR"));
+                        Map<?, ?> db = (Map<?, ?>) info.get("idDigitBox");
+                        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
+                        g.drawString("考号", num(db.get("x")), num(db.get("y")) - 10 + oy);
+                        for (int d = 0; d < digits; d++) {
+                            int x = num(db.get("x")) + d * gx;
+                            for (int n = 0; n < 10; n++) {
+                                int cy = startY + n * gy + oy;
+                                g.drawRect(bx0 + d * gx - r, cy - r, r * 2, r * 2);
+                                String numStr = String.valueOf(n);
+                                g.setFont(new Font("Arial", Font.PLAIN, 22));
+                                g.drawString(numStr, bx0 + d * gx - 6, cy + 8);
+                            }
+                        }
+                    }
+
+                    // 考号手写格：一排方框供手写考号，OCR 识别 + 人工核对都以它为准
+                    if (hb != null) {
+                        int hx = num(hb.get("x"));
+                        int hy = num(hb.get("y"));
+                        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
+                        g.drawString("考号", hx, hy + 40 + oy);
+                        for (int d = 0; d < digits; d++) {
+                            int sqx = hx + 90 + d * 80;
+                            g.drawRect(sqx, hy + oy, 64, 64);
+                        }
                     }
                 }
             }
