@@ -1,0 +1,54 @@
+server:
+  port: 8080
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+
+spring:
+  application:
+    name: exam-scan
+  profiles:
+    active: mysql
+  web:
+    resources:
+      # 前端打包产物目录（部署时由后端统一托管页面）
+      static-locations: file:C:/Users/Administrator/Documents/workbuddy/exam-scan/frontend/dist/, classpath:/static/
+  servlet:
+    multipart:
+      max-file-size: 30MB
+      max-request-size: 100MB
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+# ---- 业务配置 ----
+exam-scan:
+  storage:
+    # 上传文件与切图存放目录（绝对路径）
+    root: C:/Users/Administrator/Documents/workbuddy/exam-scan/data/storage
+  ocr:
+    # 引擎类型: local(本地Python服务) | cloud(云API) | mock(演示)
+    engine: local
+    base-url: http://127.0.0.1:8801
+    timeout-seconds: 300
+    cloud:
+      provider: baidu
+      api-key: ""
+      secret-key: ""
+  export:
+    dir: ./data/export
+
+logging:
+  level:
+    com.examscan: info

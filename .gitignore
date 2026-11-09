@@ -1,0 +1,41 @@
+# ============================================================
+#  只跟踪源码：构建产物、运行数据、依赖不进版本库
+# ============================================================
+
+# ---- 构建产物 ----
+backend/target/
+frontend/dist/
+frontend/node_modules/
+deploy/linux/build/
+deploy/windows/build/
+deploy/linux/*.tar.gz
+deploy/windows/*.zip
+*.jar
+*.war
+
+# ---- 运行时数据（绝不可入库）----
+data/
+backend/data/
+logs/
+run/
+*.log
+*.mv.db
+*.trace.db
+
+# ---- 测试输出 ----
+/scan_result.json
+/grade_result.json
+ocr-service/ocr_result.json
+
+# ---- Python ----
+ocr-service/__pycache__/
+ocr-service/.venv/
+*.py[cod]
+
+# ---- IDE / 操作系统 ----
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,11 @@
+# Exam Scan OCR 服务依赖（Python 3.11+，推荐 3.12/3.13）
+# 安装：pip install -r requirements.txt
+# 说明：rapidocr-onnxruntime 已内置 PP-OCRv4 中英文 ONNX 模型，无需额外下载模型。
+fastapi==0.162.0
+uvicorn==0.54.0
+python-multipart==0.0.33
+numpy==2.5.2
+opencv-python==5.0.0.93
+pillow==10.4.0
+rapidocr-onnxruntime==1.2.3
+onnxruntime==1.31.1

@@ -1,0 +1,13 @@
+[Unit]
+Description=Exam Scan Backend
+After=network.target exam-ocr.service
+
+[Service]
+Type=simple
+WorkingDirectory=@APP_ROOT@/backend
+ExecStart=@JAVA_EXE@ @JAVA_OPTS@ -Dfile.encoding=UTF-8 -jar @APP_ROOT@/backend/exam-scan-1.0.0.jar --server.port=@BACKEND_PORT@ --exam-scan.storage.root=@APP_ROOT@/data/storage --exam-scan.export.dir=@APP_ROOT@/data/export --exam-scan.ocr.engine=local --exam-scan.ocr.base-url=http://127.0.0.1:@OCR_PORT@ --spring.web.resources.static-locations=file:@APP_ROOT@/frontend/dist/,classpath:/static/
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

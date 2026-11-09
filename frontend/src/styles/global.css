@@ -1,0 +1,8 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+.page-card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; }
+.page-title { font-size: 18px; font-weight: 600; margin: 0 0 16px; color: #303133; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+.stat-card { background: #fff; border-radius: 8px; padding: 20px; }
+.stat-card .num { font-size: 28px; font-weight: 700; color: #409EFF; }
+.stat-card .label { color: #909399; font-size: 13px; margin-top: 4px; }

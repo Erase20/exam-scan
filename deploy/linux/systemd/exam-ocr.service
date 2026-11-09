@@ -1,0 +1,13 @@
+[Unit]
+Description=Exam Scan OCR Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@APP_ROOT@/ocr-service
+ExecStart=@PY_EXE@ -m uvicorn app:app --host 127.0.0.1 --port @OCR_PORT@
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

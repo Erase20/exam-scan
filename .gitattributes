@@ -1,0 +1,28 @@
+# 统一换行符：Linux 脚本用 LF，Windows 脚本用 CRLF
+* text=auto
+
+*.sh      text eol=lf
+*.service text eol=lf
+*.java    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.sql     text eol=lf
+*.py      text eol=lf
+*.md      text eol=lf
+*.txt     text eol=lf
+
+*.bat     text eol=crlf
+*.ps1     text eol=crlf
+*.cmd     text eol=crlf
+
+# 二进制文件不做换行转换
+*.jar     binary
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.pdf     binary
+*.docx    binary
+*.xlsx    binary
+*.zip     binary
+*.gz      binary
