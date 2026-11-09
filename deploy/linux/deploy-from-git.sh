@@ -89,7 +89,9 @@ npm config set registry https://registry.npmmirror.com || true
 echo "[1/4] 构建后端（mvn package，首次需下载依赖，几分钟）..."
 # 小内存服务器（2G）限制构建期堆内存，避免 Maven OOM
 export MAVEN_OPTS="${MAVEN_OPTS:--Xmx512m}"
+cd "$ROOT/backend"
 mvn -B -q -DskipTests package
+cd "$ROOT"
 if [ ! -f "$ROOT/backend/target/exam-scan-1.0.0.jar" ]; then
   echo "[错误] 后端构建失败：未生成 backend/target/exam-scan-1.0.0.jar"
   exit 1
