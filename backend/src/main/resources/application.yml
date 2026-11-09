@@ -9,7 +9,9 @@ spring:
   application:
     name: exam-scan
   profiles:
-    active: mysql
+    # 默认使用内嵌 H2 数据库（零配置）；生产切换 MySQL 时在启动参数加
+    # --spring.profiles.active=mysql（需先用 backend/db/schema-mysql.sql 建表）
+    active: h2
   web:
     resources:
       # 前端打包产物目录（部署时由后端统一托管页面）

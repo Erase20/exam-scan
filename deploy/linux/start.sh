@@ -45,6 +45,7 @@ else
   cd "$APP_ROOT/backend"
   nohup "$JAVA_EXE" $JAVA_OPTS -Dfile.encoding=UTF-8 -jar "$JAR" \
     --server.port="$BACKEND_PORT" \
+    --spring.profiles.active="${PROFILE:-h2}" \
     --exam-scan.storage.root="$STORAGE_DIR" \
     --exam-scan.export.dir="$EXPORT_DIR" \
     --exam-scan.ocr.engine=local \
