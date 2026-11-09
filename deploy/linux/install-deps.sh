@@ -30,8 +30,32 @@ else
 fi
 
 echo "创建 Python 虚拟环境并安装 OCR 依赖（首次较慢）..."
+# OCR 依赖要求 Python 3.9+（推荐 3.11+）；自动挑选可用的解释器
+PY=""
+for cand in python3.13 python3.12 python3.11 python3.10 python3.9 python3; do
+  if command -v "$cand" >/dev/null 2>&1; then
+    v="$("$cand" -c 'import sys;print("%d.%d" % sys.version_info[:2])' 2>/dev/null)"
+    mj="${v%%.*}"; mn="${v#*.}"
+    if [ "$mj" -eq 3 ] && [ "$mn" -ge 9 ] 2>/dev/null; then
+      PY="$cand"
+      break
+    fi
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "[错误] 未找到 Python 3.9+ 的解释器（当前 python3 版本过低，无法安装 OCR 依赖）"
+  echo "  老系统（如 CentOS 7，python3=3.6）需先编译安装 Python 3.11："
+  echo "    yum install -y gcc make openssl-devel bzip2-devel libffi-devel zlib-devel xz-devel sqlite-devel wget"
+  echo "    cd /tmp && wget https://mirrors.huaweicloud.com/python/3.11.9/Python-3.11.9.tgz"
+  echo "    tar -xzf Python-3.11.9.tgz && cd Python-3.11.9"
+  echo "    ./configure >/dev/null && make -j\$(nproc) && make altinstall"
+  echo "    # 装完重新执行本脚本（会自动选用 python3.11）"
+  echo "  更省事的做法：换用 Ubuntu 22.04/24.04 或 Rocky 9 系统镜像（自带 Python 3.10+）"
+  exit 1
+fi
+echo "使用解释器: $PY ($("$PY" -V 2>&1))"
 if [ ! -x "$OCR_DIR/.venv/bin/python" ]; then
-  python3 -m venv "$OCR_DIR/.venv"
+  "$PY" -m venv "$OCR_DIR/.venv"
 fi
 # 云服务器在国内时 pypi.org 较慢，优先使用阿里云镜像
 PIP_MIRROR="https://mirrors.aliyun.com/pypi/simple/"
