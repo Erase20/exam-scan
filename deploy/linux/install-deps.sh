@@ -59,6 +59,15 @@ if [ -z "$PY" ]; then
   exit 1
 fi
 echo "使用解释器: $PY ($("$PY" -V 2>&1))"
+# 旧虚拟环境若是低版本 Python 创建的（早期失败遗留），与所选解释器不符时删除重建
+if [ -x "$OCR_DIR/.venv/bin/python" ]; then
+  venv_ver="$("$OCR_DIR/.venv/bin/python" -c 'import sys;print("%d.%d" % sys.version_info[:2])' 2>/dev/null)"
+  want_ver="$("$PY" -c 'import sys;print("%d.%d" % sys.version_info[:2])' 2>/dev/null)"
+  if [ "$venv_ver" != "$want_ver" ]; then
+    echo "[修复] 已存在的虚拟环境是 Python $venv_ver（与 $PY 不符），删除重建..."
+    rm -rf "$OCR_DIR/.venv"
+  fi
+fi
 if [ ! -x "$OCR_DIR/.venv/bin/python" ]; then
   "$PY" -m venv "$OCR_DIR/.venv"
 fi
