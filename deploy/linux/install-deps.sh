@@ -28,8 +28,11 @@ echo "创建 Python 虚拟环境并安装 OCR 依赖（首次较慢）..."
 if [ ! -x "$OCR_DIR/.venv/bin/python" ]; then
   python3 -m venv "$OCR_DIR/.venv"
 fi
-"$OCR_DIR/.venv/bin/pip" install -U pip
-"$OCR_DIR/.venv/bin/pip" install -r "$OCR_DIR/requirements.txt"
+# 云服务器在国内时 pypi.org 较慢，优先使用阿里云镜像
+PIP_MIRROR="https://mirrors.aliyun.com/pypi/simple/"
+"$OCR_DIR/.venv/bin/pip" install -U pip -i "$PIP_MIRROR" || "$OCR_DIR/.venv/bin/pip" install -U pip
+"$OCR_DIR/.venv/bin/pip" install -r "$OCR_DIR/requirements.txt" -i "$PIP_MIRROR" \
+  || "$OCR_DIR/.venv/bin/pip" install -r "$OCR_DIR/requirements.txt"
 
 echo
 echo "依赖安装完成。下一步：bash start.sh"
