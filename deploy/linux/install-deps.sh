@@ -21,7 +21,12 @@ if command -v apt-get >/dev/null 2>&1; then
     || echo "[提示] openjdk-21-jdk 安装失败：Ubuntu 22.04 请按 README 用 Adoptium 源安装 JDK 21"
 elif command -v dnf >/dev/null 2>&1; then
   echo "使用 dnf 安装依赖 ..."
-  $SUDO dnf install -y java-21-openjdk python3 python3-pip unzip curl mesa-libGL glib2
+  # Alibaba Cloud Linux 3 / RHEL8 系：java-21-openjdk 与 python3.11 都在官方源中
+  $SUDO dnf install -y java-21-openjdk python3 python3-pip unzip curl mesa-libGL glib2 \
+    || echo "[提示] 部分包安装失败，可单独重试"
+  # 默认 python3 是 3.6，OCR 依赖需要 3.9+，补装 python3.11
+  $SUDO dnf install -y python3.11 python3.11-pip \
+    || echo "[提示] python3.11 安装失败，请执行: dnf install -y python3.11 python3.11-pip"
 elif command -v yum >/dev/null 2>&1; then
   echo "使用 yum 安装依赖 ..."
   $SUDO yum install -y java-21-openjdk python3 python3-pip unzip curl mesa-libGL glib2
