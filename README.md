@@ -14,13 +14,16 @@
 ## 快速启动
 
 ```bash
-# 一键启动（Git Bash）
-bash start-all.sh
+# Windows：一键启动 OCR(8801) + 后端(8091) + 前端(5173)
+start-exam.bat
 
-# 或分别启动
-start-ocr.bat       # 1. OCR 服务 (8801)
-start-backend.bat   # 2. Spring Boot 后端 (8090)
-start-frontend.bat  # 3. 前端开发服务器 (5173)
+# 停止全部服务
+stop-exam.bat
+
+# 只启动单个服务（在新窗口直接运行对应的 run 脚本即可）
+run-ocr.bat         # OCR 服务 (8801)
+run-backend.bat     # Spring Boot 后端 (8091)
+run-frontend.bat    # 前端开发服务器 (5173)
 ```
 
 打开 http://localhost:5173 即可使用。首次启动自动导入 27 道演示题。
@@ -53,7 +56,9 @@ exam-scan/
 ├── frontend/         # Vue3 前端（6 个页面）
 ├── ocr-service/      # Python OCR 服务（版面分析 + RapidOCR）
 ├── data/             # 运行时数据（H2 库、上传图片、切图）
-└── start-*.sh/bat    # 启动脚本
+├── start-exam.bat    # 一键启动 / stop-exam.bat 一键停止
+├── run-*.bat         # 单独启动某个服务
+└── env.bat           # 本机环境变量（Java/Python/Node 路径、端口）
 ```
 
 ## 切换 MySQL
