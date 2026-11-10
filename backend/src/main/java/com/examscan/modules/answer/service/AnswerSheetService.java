@@ -764,7 +764,7 @@ public class AnswerSheetService {
                     }
                 }
                 if (pageCount > 1) {
-                    g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
+                    g.setFont(cjkFont(Font.PLAIN, 28));
                     g.drawString("第 " + (p + 1) + " / " + pageCount + " 页",
                             PAGE_W - MARGIN - 220, PAGE_H - MARGIN - 40 + oy);
                     g.setColor(Color.BLACK);
@@ -775,7 +775,7 @@ public class AnswerSheetService {
                 // 信息区：姓名 / 班级 / 手写考号格（旧版布局兼容涂卡区），每页复刻，
                 // 多页答题卡的任何一页扫描后都能识别考生
                 if (info != null) {
-                    g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 34));
+                    g.setFont(cjkFont(Font.PLAIN, 34));
                     Map<?, ?> nb = (Map<?, ?>) info.get("nameBox");
                     Map<?, ?> cb = (Map<?, ?>) info.get("classBox");
                     Map<?, ?> hb = (Map<?, ?>) info.get("idHandBox");
@@ -795,7 +795,7 @@ public class AnswerSheetService {
                         int gy = num(info.get("idBubbleGapY"));
                         int r = num(info.get("idBubbleR"));
                         Map<?, ?> db = (Map<?, ?>) info.get("idDigitBox");
-                        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
+                        g.setFont(cjkFont(Font.PLAIN, 28));
                         g.drawString("考号", num(db.get("x")), num(db.get("y")) - 10 + oy);
                         for (int d = 0; d < digits; d++) {
                             int x = num(db.get("x")) + d * gx;
@@ -803,7 +803,7 @@ public class AnswerSheetService {
                                 int cy = startY + n * gy + oy;
                                 g.drawRect(bx0 + d * gx - r, cy - r, r * 2, r * 2);
                                 String numStr = String.valueOf(n);
-                                g.setFont(new Font("Arial", Font.PLAIN, 22));
+                                g.setFont(cjkFont(Font.PLAIN, 22));
                                 g.drawString(numStr, bx0 + d * gx - 6, cy + 8);
                             }
                         }
@@ -813,7 +813,7 @@ public class AnswerSheetService {
                     if (hb != null) {
                         int hx = num(hb.get("x"));
                         int hy = num(hb.get("y"));
-                        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
+                        g.setFont(cjkFont(Font.PLAIN, 28));
                         g.drawString("考号", hx, hy + 40 + oy);
                         for (int d = 0; d < digits; d++) {
                             int sqx = hx + 90 + d * 80;
@@ -825,7 +825,7 @@ public class AnswerSheetService {
             }
 
             // 标题
-            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 64));
+            g.setFont(cjkFont(Font.BOLD, 64));
             String title = sheet.getTitle();
             int tw = g.getFontMetrics().stringWidth(title);
             g.drawString(title, (PAGE_W - tw) / 2, MARGIN + 100);
@@ -875,7 +875,7 @@ public class AnswerSheetService {
                     g.setColor(new Color(0xDD, 0xDD, 0xDD));
                     g.drawRect(num(box.get("x")), num(box.get("y")), num(box.get("w")), num(box.get("h")));
                     g.setColor(Color.BLACK);
-                    g.setFont(new Font("Microsoft YaHei", Font.BOLD, 34));
+                    g.setFont(cjkFont(Font.BOLD, 34));
                     g.drawString(c.get("qNo") + ".", num(box.get("x")) + 15, num(box.get("y")) + 62);
                     List<?> bubbles = (List<?>) c.get("bubbles");
                     if (bubbles != null) {
@@ -887,7 +887,7 @@ public class AnswerSheetService {
                             String label = judge
                                     ? ("A".equals(String.valueOf(b.get("key"))) ? "√" : "×")
                                     : String.valueOf(b.get("key"));
-                            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 24));
+                            g.setFont(cjkFont(Font.PLAIN, 24));
                             g.drawString(label, cx - 8, cy + 9);
                         }
                     }
@@ -906,7 +906,7 @@ public class AnswerSheetService {
                     g.drawRect(bx, by, bw, bh);
 
                     g.setColor(Color.BLACK);
-                    g.setFont(new Font("Microsoft YaHei", Font.BOLD, fill ? 32 : 34));
+                    g.setFont(cjkFont(Font.BOLD, fill ? 32 : 34));
                     Object score = c.get("score");
                     String scoreStr = fill || score == null ? ""
                             : ("（" + new BigDecimal(score.toString()).stripTrailingZeros().toPlainString() + "分）");
@@ -932,7 +932,7 @@ public class AnswerSheetService {
                             g.setColor(new Color(0xDD, 0xDD, 0xDD));
                             g.drawRect(num(sb.get("x")), num(sb.get("y")), num(sb.get("w")), num(sb.get("h")));
                             g.setColor(Color.GRAY);
-                            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 24));
+                            g.setFont(cjkFont(Font.PLAIN, 24));
                             g.drawString("得分", num(sb.get("x")) + 8, num(sb.get("y")) + 36);
                             g.setColor(Color.BLACK);
                         }
@@ -998,13 +998,54 @@ public class AnswerSheetService {
             return;
         }
         g.setColor(Color.BLACK);
-        g.setFont(new Font("Microsoft YaHei", Font.BOLD, 36));
+        g.setFont(cjkFont(Font.BOLD, 36));
         for (Object o : list) {
             if (!(o instanceof Map<?, ?> m)) {
                 continue;
             }
             g.drawString(String.valueOf(m.get("name")), num(m.get("x")), num(m.get("y")));
         }
+    }
+
+    /**
+     * 选择系统里可用的中文字体。
+     *
+     * 此前答题卡中文写死 "Microsoft YaHei"（微软雅黑），
+     * 没有安装该字体的 Linux 服务器会回退到无中文字形映射的逻辑字体，
+     * 预览/导出的答题卡整片中文显示不出来（本地 Windows 正常、云上空白的原因）。
+     * 这里按候选列表挑一个系统真实存在的中文字体；都没有时退回 SansSerif。
+     */
+    private static volatile Font cjkBase;
+
+    private static Font cjkFont(int style, int size) {
+        if (cjkBase == null) {
+            synchronized (AnswerSheetService.class) {
+                if (cjkBase == null) {
+                    String[] candidates = {
+                            "Microsoft YaHei", "微软雅黑", "SimHei", "黑体",
+                            "WenQuanYi Micro Hei", "WenQuanYi Zen Hei",
+                            "Noto Sans CJK SC", "Source Han Sans SC",
+                            "PingFang SC", "Arial Unicode MS"
+                    };
+                    Font picked = null;
+                    try {
+                        Set<String> names = new HashSet<>(Arrays.asList(
+                                GraphicsEnvironment.getLocalGraphicsEnvironment()
+                                        .getAvailableFontFamilyNames()));
+                        for (String c : candidates) {
+                            if (names.contains(c)) {
+                                picked = new Font(c, Font.PLAIN, 100);
+                                break;
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("枚举系统字体失败，使用默认字体: {}", e.getMessage());
+                    }
+                    cjkBase = picked != null ? picked : new Font(Font.SANS_SERIF, Font.PLAIN, 100);
+                }
+            }
+        }
+        return cjkBase.deriveFont(style, (float) size);
     }
 
     private static int num(Object o) {
