@@ -25,8 +25,8 @@ public class QuestionQuery {
     private Integer minDifficulty;
     private Integer maxDifficulty;
     private Integer hasImage;
-    /** 课序筛选：单选=单个元素，多选=多个元素；为空表示不按课序筛选 */
-    private List<Integer> lessonOrder;
-    /** 仅筛选「课序未设置」的题目 */
-    private Boolean lessonOrderEmpty;
+    /** 课号筛选：单选=单个元素，多选=多个元素；为空表示不按课号筛选 */
+    private List<String> courseNo;
+    /** 仅筛选「课号未设置」的题目 */
+    private Boolean courseNoEmpty;
 }

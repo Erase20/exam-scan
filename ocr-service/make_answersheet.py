@@ -50,8 +50,8 @@ def render(layout, answers, student_no, out_path):
     d.text((cb["x"], cb["y"] + 10), "班级：五(1)班", font=font(34), fill="black")
 
     # 考号：旧版布局画涂卡区；新版布局没有涂卡区，把考号手写进手写格
-    digits = info["idDigits"]
-    if "idBubbleStartX" in info:
+    digits = info.get("idDigits", 8)
+    if "idDigitBox" in info and "idBubbleStartX" in info and "idStartY" in info:
         db = info["idDigitBox"]
         d.text((db["x"], db["y"] - 20), "考号", font=font(30), fill="black")
         bx0 = info["idBubbleStartX"]
@@ -72,6 +72,7 @@ def render(layout, answers, student_no, out_path):
                 cy = startY + int(ch) * gy
                 d.ellipse([x - r + 2, cy - r + 2, x + r - 2, cy + r - 2], fill="black")
     else:
+        # 手写考号方框：与渲染器几何一致（hx+90 起步、间距 80、64px 方框）
         hb = info.get("idHandBox")
         if hb:
             hx, hy = hb["x"], hb["y"]

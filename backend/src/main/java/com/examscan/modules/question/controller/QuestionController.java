@@ -56,10 +56,10 @@ public class QuestionController {
         return R.ok(searchService.stats());
     }
 
-    /** 题库中已设置的课序去重列表（升序），供筛选下拉框使用 */
-    @GetMapping("/lesson-orders")
-    public R<List<Integer>> lessonOrders() {
-        return R.ok(searchService.distinctLessonOrders());
+    /** 题库中已设置的课号去重列表（升序），供筛选下拉框使用 */
+    @GetMapping("/course-nos")
+    public R<List<String>> courseNos() {
+        return R.ok(searchService.distinctCourseNos());
     }
 
     /**

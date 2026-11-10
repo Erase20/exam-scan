@@ -1,6 +1,7 @@
 package com.examscan.modules.paper.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.examscan.common.PaperAnswerUtil;
 import com.examscan.common.QuestionType;
 import com.examscan.modules.paper.entity.Paper;
 import com.examscan.modules.paper.entity.PaperItem;
@@ -42,6 +43,9 @@ public class PaperExportService {
     private final QuestionMapper questionMapper;
     private final ObjectMapper json = new ObjectMapper();
 
+    /** inline 模式下会把答案填入题干空位的题型（填空逐空填；选择/判断填入括号空位） */
+    private static final Set<String> INLINE_FILL_TYPES = Set.of("FILL", "CHOICE", "JUDGE");
+
     /** 与 WebConfig 的 /files/** 映射一致，用于把题图 Web 路径还原成磁盘文件 */
     @Value("${exam-scan.storage.root:./data/storage}")
     private String storageRoot;
@@ -49,9 +53,24 @@ public class PaperExportService {
     /**
      * 导出试卷 Word
      *
-     * @param withAnswer 是否附带参考答案与解析
+     * @param withAnswer 是否附带参考答案与解析（答案集中排在试卷末页）
      */
     public byte[] exportDocx(Long paperId, boolean withAnswer) {
+        return exportDocx(paperId, withAnswer ? "separate" : "none");
+    }
+
+    /**
+     * 导出试卷 Word。
+     *
+     * @param answerMode 答案呈现方式：
+     *                   none     —— 不含答案；
+     *                   inline   —— 答案填在相应位置（填空题逐空填入题干空位，选择/判断填入括号，无空位题型题后标【答案】）；
+     *                   separate —— 答案与解析集中排在试卷末页（旧行为）。
+     */
+    public byte[] exportDocx(Long paperId, String answerMode) {
+        String mode = answerMode == null ? "none" : answerMode;
+        boolean inline = "inline".equals(mode);
+        boolean separate = "separate".equals(mode);
         Paper paper = paperMapper.selectById(paperId);
         if (paper == null) {
             throw new IllegalArgumentException("试卷不存在");
@@ -142,12 +161,23 @@ public class PaperExportService {
                     if (q == null) {
                         continue;
                     }
+
+                    // inline 模式：把答案按空位填进题干（填空/选择/判断），其余题型保持原题干
+                    String stem = safe(q.getStem()).trim();
+                    List<String> answers = inline ? PaperAnswerUtil.splitAnswers(q.getAnswer()) : List.of();
+                    List<String> leftover = List.of();
+                    if (inline && !answers.isEmpty() && INLINE_FILL_TYPES.contains(q.getQType())) {
+                        PaperAnswerUtil.FillResult fr = PaperAnswerUtil.fillBlanks(stem, answers);
+                        stem = fr.filled();
+                        leftover = fr.leftover();
+                    }
+
                     XWPFParagraph p = doc.createParagraph();
                     p.setSpacingBefore(80);
                     XWPFRun r = p.createRun();
                     r.setFontSize(11);
                     r.setFontFamily("宋体");
-                    r.setText(no + "．" + safe(q.getStem()).trim());
+                    r.setText(no + "．" + stem);
 
                     // 题库中标记为图片的区域，随题干一起插入试卷
                     appendImages(doc, q);
@@ -169,12 +199,44 @@ public class PaperExportService {
                         }
                         or.setText(os.toString());
                     }
+
+                    // inline 模式：空位没放下的答案与解析，紧跟本题显示
+                    if (inline) {
+                        String ansText = null;
+                        if (!answers.isEmpty()) {
+                            if (INLINE_FILL_TYPES.contains(q.getQType())) {
+                                ansText = leftover.isEmpty() ? null : String.join("；", leftover);
+                            } else {
+                                ansText = safe(q.getAnswer());
+                            }
+                        }
+                        String analysis = safe(q.getAnalysis());
+                        StringBuilder extra = new StringBuilder();
+                        if (ansText != null && !ansText.isBlank()) {
+                            extra.append("【答案】").append(ansText);
+                        }
+                        if (!analysis.isBlank()) {
+                            if (extra.length() > 0) {
+                                extra.append("　");
+                            }
+                            extra.append("【解析】").append(analysis);
+                        }
+                        if (extra.length() > 0) {
+                            XWPFParagraph ep = doc.createParagraph();
+                            ep.setIndentationLeft(240);
+                            XWPFRun er = ep.createRun();
+                            er.setFontSize(10);
+                            er.setFontFamily("宋体");
+                            er.setColor("C00000");
+                            er.setText(extra.toString());
+                        }
+                    }
                     no++;
                 }
             }
 
-            // 参考答案
-            if (withAnswer) {
+            // 参考答案（separate 模式：集中排在试卷末页）
+            if (separate) {
                 doc.createParagraph().createRun().addBreak(BreakType.PAGE);
                 XWPFParagraph ap = doc.createParagraph();
                 XWPFRun ar = ap.createRun();

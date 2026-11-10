@@ -164,7 +164,11 @@ public class DocumentImportService {
             q.setSectionOrder(intOf(it.get("sectionOrder"), 0));
             q.setSeq(intOf(it.get("seq"), 0));
             q.setKnowledge(strOf(it.get("knowledge")));
-            q.setLessonOrder(intOrNull(it.get("lessonOrder")));
+            String cn = strOf(it.get("courseNo"));
+            if (cn.isBlank()) {
+                cn = strOf(it.get("lessonOrder"));  // 兼容旧草稿中的课序键
+            }
+            q.setCourseNo(cn.trim());
             String imagePath = strOf(it.get("imagePath"));
             q.setHasImage(imagePath.isBlank() ? 0 : 1);
             q.setImagePath(imagePath.isBlank() ? null : imagePath);
@@ -231,17 +235,6 @@ public class DocumentImportService {
         }
     }
 
-    private static Integer intOrNull(Object o) {
-        if (o == null || o.toString().isBlank()) {
-            return null;
-        }
-        try {
-            return (int) Double.parseDouble(o.toString().trim());
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
     /** ================= Word .docx ================= */
     private String parseDocx(byte[] bytes) {
         try (XWPFDocument doc = new XWPFDocument(new ByteArrayInputStream(bytes));
@@ -284,7 +277,7 @@ public class DocumentImportService {
     /** 模板表头（与题库导出的列一致，保证导出后可原样再导入） */
     private static final String[] TEMPLATE_HEADERS = {
             "题号", "题型", "题干", "选项A", "选项B", "选项C", "选项D",
-            "答案", "解析", "难度", "分值", "知识点", "学科", "年级", "课序"
+            "答案", "解析", "难度", "分值", "知识点", "学科", "年级", "课号"
     };
     private static final int[] TEMPLATE_WIDTHS = {8, 10, 50, 18, 18, 18, 18, 10, 30, 6, 6, 14, 8, 8, 8};
 
@@ -317,7 +310,7 @@ public class DocumentImportService {
             {"分值", "否", "数字，留空默认 5"},
             {"知识点", "否", "多个用逗号分隔"},
             {"学科 / 年级", "否", "填写时覆盖导入页所选的科目与年级"},
-            {"课序", "否", "整数，留空表示未设置，可在题库按课序筛选"},
+            {"课号", "否", "课程编号（如 K03 / 第3课 / 3），留空表示未设置，可在题库按课号筛选"},
     };
 
     /**
@@ -503,14 +496,8 @@ public class DocumentImportService {
             if (gr != null && !gr.isBlank()) {
                 q.setGrade(gr.trim());
             }
-            String lo = getCol(row, col, "课序");
-            if (lo != null && !lo.isBlank()) {
-                try {
-                    q.setLessonOrder(Integer.parseInt(lo.trim()));
-                } catch (NumberFormatException ignore) {
-                    // 非整数课序忽略，保持未设置
-                }
-            }
+            String cn = getCol(row, col, "课号", "课序");  // 兼容旧模板的「课序」表头
+            q.setCourseNo(cn == null ? "" : cn.trim());
             out.add(q);
         }
         return out;

@@ -237,17 +237,19 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="学号/考号" width="150">
+        <el-table-column label="学号/考号" width="160">
           <template #default="{ row }">
-            <span>{{ row.studentNo || '未识别' }}</span>
-            <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
-              <template #reference>
-                <el-button size="small" text type="primary" style="padding:0 3px">图</el-button>
-              </template>
-              <div style="font-size:12px;color:#909399;margin-bottom:4px">考号手写选区截图</div>
-              <el-image :src="`/api/grading/${row.id}/crop/id`" style="width:100%"
-                        :preview-src-list="[`/api/grading/${row.id}/crop/id`]" preview-teleported />
-            </el-popover>
+            <div style="display:flex;align-items:center;gap:2px">
+              <el-input v-model="row.studentNo" size="small" placeholder="填写" @change="saveInfo(row)" />
+              <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
+                <template #reference>
+                  <el-button size="small" text type="primary" style="padding:0 3px">图</el-button>
+                </template>
+                <div style="font-size:12px;color:#909399;margin-bottom:4px">考号手写选区截图</div>
+                <el-image :src="`/api/grading/${row.id}/crop/id`" style="width:100%"
+                          :preview-src-list="[`/api/grading/${row.id}/crop/id`]" preview-teleported />
+              </el-popover>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="objectiveScore" label="客观题" width="80" />
@@ -591,11 +593,15 @@ async function loadRecords() {
   }
 }
 
-/** 补录班级/姓名（输入框失焦/回车即保存） */
+/** 补录/更正 学号、班级、姓名（输入框失焦/回车即保存；三者一致则阅卷统计自动合并） */
 async function saveInfo(row) {
   try {
-    await http.post(`/grading/${row.id}/info`, { className: row.className || '', studentName: row.studentName || '' })
-    ElMessage.success('班级/姓名已保存')
+    await http.post(`/grading/${row.id}/info`, {
+      studentNo: row.studentNo || '',
+      className: row.className || '',
+      studentName: row.studentName || '',
+    })
+    ElMessage.success('学号/班级/姓名已保存')
   } catch (e) { /* 拦截器已提示 */ }
 }
 

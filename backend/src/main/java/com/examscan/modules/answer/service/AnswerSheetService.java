@@ -162,9 +162,13 @@ public class AnswerSheetService {
         // 两遍排版：先按舒适密度排；若「末页内容偏少」（近乎空白页），
         // 再用紧凑密度重排——只有真正省出一页时才采用紧凑版。
         Map<String, Object> body = buildBody(bySection, noInSection, seqOfItem, false);
-        if ((int) body.get("pageCount") > 1 && (double) body.get("lastPageUsed") < 0.8) {
+        if ((int) body.get("pageCount") > 1 && (double) body.get("lastPageUsed") < 0.85) {
             Map<String, Object> denseBody = buildBody(bySection, noInSection, seqOfItem, true);
-            if ((int) denseBody.get("pageCount") < (int) body.get("pageCount")) {
+            // 紧凑版要么少一页，要么同页数但末页利用率更高（消除接近空白的末页），才采用
+            boolean fewerPages = (int) denseBody.get("pageCount") < (int) body.get("pageCount");
+            boolean betterPacked = (int) denseBody.get("pageCount") == (int) body.get("pageCount")
+                    && (double) denseBody.get("lastPageUsed") > (double) body.get("lastPageUsed");
+            if (fewerPages || betterPacked) {
                 body = denseBody;
             }
         }
@@ -271,7 +275,8 @@ public class AnswerSheetService {
         int ansLineGap = dense ? 80 : 125;     // 解答题横线行距（舒适档加大行距，行数相应减少）
         int gapAns = dense ? 14 : 24;          // 解答题框间距
         int gapSection = dense ? 10 : 20;      // 大题之间间距
-        int pageStartOff = MARGIN + MARKER_SIZE + 80;
+        // 续页正文起点：与首页一致，都在每页信息区下方（修复续页内容与每页复刻的信息区重叠）
+        int pageStartOff = INFO_Y + (dense ? 320 : 360);
         String[] cnNums = {"一", "二", "三", "四", "五", "六", "七", "八", "九", "十"};
 
         int y = startY;
@@ -745,44 +750,36 @@ public class AnswerSheetService {
         try {
             Map<?, ?> layout = pre;
 
-            // 定位标记：每页四角各一组，扫描任何一页都能做透视校正
+            // 定位标记 / 页码 / 信息区：每页都绘制（含首页），多页扫描时逐页都能归并为同一考生
+            Map<?, ?> info = (Map<?, ?>) layout.get("info");
             List<?> markers = (List<?>) layout.get("markers");
             g.setColor(Color.BLACK);
-            if (markers != null) {
-                for (int p = 0; p < pageCount; p++) {
-                    int oy = p * PAGE_H;
+            for (int p = 0; p < pageCount; p++) {
+                int oy = p * PAGE_H;
+                if (markers != null) {
                     for (Object o : markers) {
                         Map<?, ?> m = (Map<?, ?>) o;
                         g.fillRect(num(m.get("x")), num(m.get("y")) + oy,
                                 num(m.get("size")), num(m.get("size")));
                     }
-                    if (pageCount > 1) {
-                        g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
-                        g.drawString("第 " + (p + 1) + " / " + pageCount + " 页",
-                                PAGE_W - MARGIN - 220, PAGE_H - MARGIN - 40 + oy);
-                        g.setColor(Color.BLACK);
-                    }
-                    // 机器可读页码标识：二进制方块编码 1-based 页码，位于每页顶部中央
-                    drawPageCode(g, layout, p, oy);
                 }
-            }
+                if (pageCount > 1) {
+                    g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 28));
+                    g.drawString("第 " + (p + 1) + " / " + pageCount + " 页",
+                            PAGE_W - MARGIN - 220, PAGE_H - MARGIN - 40 + oy);
+                    g.setColor(Color.BLACK);
+                }
+                // 机器可读页码标识：二进制方块编码 1-based 页码，位于每页顶部中央
+                drawPageCode(g, layout, p, oy);
 
-            // 标题
-            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 64));
-            String title = sheet.getTitle();
-            int tw = g.getFontMetrics().stringWidth(title);
-            g.drawString(title, (PAGE_W - tw) / 2, MARGIN + 100);
-
-            g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 34));
-            Map<?, ?> info = (Map<?, ?>) layout.get("info");
-            if (info != null) {
-                Map<?, ?> nb = (Map<?, ?>) info.get("nameBox");
-                Map<?, ?> cb = (Map<?, ?>) info.get("classBox");
-                Map<?, ?> hb = (Map<?, ?>) info.get("idHandBox");
-                int digits = num(info.get("idDigits"));
-                // 信息区每页都绘制：多页答题卡的任何一页扫描后都能识别考生（姓名/班级/手写考号）
-                for (int p = 0; p < pageCount; p++) {
-                    int oy = p * PAGE_H;
+                // 信息区：姓名 / 班级 / 手写考号格（旧版布局兼容涂卡区），每页复刻，
+                // 多页答题卡的任何一页扫描后都能识别考生
+                if (info != null) {
+                    g.setFont(new Font("Microsoft YaHei", Font.PLAIN, 34));
+                    Map<?, ?> nb = (Map<?, ?>) info.get("nameBox");
+                    Map<?, ?> cb = (Map<?, ?>) info.get("classBox");
+                    Map<?, ?> hb = (Map<?, ?>) info.get("idHandBox");
+                    int digits = num(info.get("idDigits"));
                     if (nb != null) {
                         g.drawString("姓名：________________", num(nb.get("x")), num(nb.get("y")) + 60 + oy);
                     }
@@ -823,9 +820,15 @@ public class AnswerSheetService {
                             g.drawRect(sqx, hy + oy, 64, 64);
                         }
                     }
+                    g.setColor(Color.BLACK);
                 }
             }
 
+            // 标题
+            g.setFont(new Font("Microsoft YaHei", Font.BOLD, 64));
+            String title = sheet.getTitle();
+            int tw = g.getFontMetrics().stringWidth(title);
+            g.drawString(title, (PAGE_W - tw) / 2, MARGIN + 100);
             // 统一按 sectionNo 升序渲染所有大题（新布局用 layout.cells；
             // 旧布局没有该字段时回退到「先客观后主观」的两段式，保证兼容）
             List<?> renderCells;

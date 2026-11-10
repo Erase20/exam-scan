@@ -62,10 +62,11 @@ public class GradingController {
         return R.ok(service.adjust(id, manualScores));
     }
 
-    /** 补录/修改班级与姓名 */
+    /** 补录/修改学号、班级与姓名（三者允许人工更正；三者一致则在阅卷统计中合并为一条成绩） */
     @PostMapping("/{id}/info")
     public R<GradeSheet> info(@PathVariable Long id, @RequestBody Map<String, String> body) {
-        return R.ok(service.updateInfo(id, body.get("className"), body.get("studentName")));
+        return R.ok(service.updateInfo(id, body.get("studentNo"),
+                body.get("className"), body.get("studentName")));
     }
 
     /** 答题卡原图 */

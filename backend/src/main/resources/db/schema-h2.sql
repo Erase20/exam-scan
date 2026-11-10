@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS question (
     section_order  INT DEFAULT 0      COMMENT '大题序号(一/二/三 -> 1/2/3), 0 表示未识别到题型大类',
     section_title  VARCHAR(100)       COMMENT '大题标题, 如 填空题',
     seq            INT DEFAULT 0      COMMENT '卷内连续序号',
-    lesson_order   INT DEFAULT NULL   COMMENT '课序(所属课次序号, 整数, 可为空)',
+    course_no      VARCHAR(64) DEFAULT NULL COMMENT '课号(课程编号, 字符串, 可为空), 即原来的课序',
     stem           CLOB NOT NULL,
     options        CLOB,
     answer         CLOB,
@@ -80,6 +80,12 @@ CREATE TABLE IF NOT EXISTS question (
     update_time    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     deleted        TINYINT DEFAULT 0
 );
+
+-- 兼容已存在的库：列已存在时 IF NOT EXISTS 使其安全跳过
+ALTER TABLE question ADD COLUMN IF NOT EXISTS course_no VARCHAR(64);
+-- 「课序」已并入「课号」：旧库可按需执行一次数据迁移（整数 -> 字符串）后删除废弃列
+-- UPDATE question SET course_no = CAST(lesson_order AS VARCHAR) WHERE (course_no IS NULL OR course_no = '') AND lesson_order IS NOT NULL;
+-- ALTER TABLE question DROP COLUMN IF EXISTS lesson_order;
 
 CREATE TABLE IF NOT EXISTS paper (
     id             BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -152,7 +158,6 @@ CREATE TABLE IF NOT EXISTS grade_sheet (
 ALTER TABLE question ADD COLUMN IF NOT EXISTS section_order INT DEFAULT 0;
 ALTER TABLE question ADD COLUMN IF NOT EXISTS section_title VARCHAR(100);
 ALTER TABLE question ADD COLUMN IF NOT EXISTS seq INT DEFAULT 0;
-ALTER TABLE question ADD COLUMN IF NOT EXISTS lesson_order INT DEFAULT NULL;
 
 -- 阅卷记录补录班级
 ALTER TABLE grade_sheet ADD COLUMN IF NOT EXISTS class_name VARCHAR(50);

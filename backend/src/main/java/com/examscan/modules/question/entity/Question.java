@@ -23,9 +23,10 @@ public class Question {
     private Integer sectionOrder;
     /** 大题标题原文，如「填空题」「判断题」 */
     private String sectionTitle;
-    /** 课序：所属课次序号（整数，可为空），用于按课次筛选题目 */
-    @TableField(value = "lesson_order", updateStrategy = FieldStrategy.IGNORED)
-    private Integer lessonOrder;
+    /** 课号：课程编号（字符串，如 K03 / 第3课 / 3），可为空，随题保存并可编辑，用于按课号筛选 */
+    @TableField("course_no")
+    @JsonProperty("courseNo")
+    private String courseNo;
     /** 卷内连续序号：按「大题顺序 → 小题号」排序后的 1..N */
     private Integer seq;
     private String stem;

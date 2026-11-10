@@ -37,7 +37,7 @@ public class QuestionExportService {
     /** 导出列：与导入模板表头一致 */
     private static final String[] HEADERS = {
             "题号", "题型", "题干", "选项A", "选项B", "选项C", "选项D",
-            "答案", "解析", "难度", "分值", "知识点", "学科", "年级", "大题标题", "来源", "课序"
+            "答案", "解析", "难度", "分值", "知识点", "学科", "年级", "大题标题", "来源", "课号"
     };
     private static final int[] WIDTHS = {
             8, 10, 50, 18, 18, 18, 18, 10, 30, 6, 6, 14, 8, 8, 12, 8, 8
@@ -88,7 +88,7 @@ public class QuestionExportService {
                 put(row, body, 13, item.getGrade());
                 put(row, body, 14, item.getSectionTitle());
                 put(row, body, 15, sourceName(item.getSource()));
-                put(row, body, 16, item.getLessonOrder() == null ? "" : String.valueOf(item.getLessonOrder()));
+                put(row, body, 16, item.getCourseNo() == null ? "" : String.valueOf(item.getCourseNo()));
             }
             sheet.createFreezePane(0, 1);
             wb.write(out);

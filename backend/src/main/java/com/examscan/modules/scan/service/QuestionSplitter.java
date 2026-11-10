@@ -121,8 +121,9 @@ public class QuestionSplitter {
         /** 结构化导入时表格里自带的学科/年级；需随草稿回传，确认入库时优先使用 */
         private String subject;
         private String grade;
-        /** 课序（导入模板可选填写，整数；扫描流程不使用） */
-        private Integer lessonOrder;
+        /** 课号：课程编号（字符串，如 K03 / 第3课 / 3）；扫描流程默认留空，由用户在切分后填写/更正 */
+        @JsonProperty("courseNo")
+        private String courseNo = "";
         /** 大题标题判定的题型（内部用，用于统一同一大题的题型） */
         @JsonIgnore
         private String sectionTypeHint;

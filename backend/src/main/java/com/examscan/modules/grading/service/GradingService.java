@@ -30,6 +30,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 答题卡阅卷服务
@@ -771,6 +773,19 @@ public class GradingService {
             if (info.get("classBox") instanceof Map<?, ?> cb) {
                 out[2] = ocrInfoRegion(cropBytes(norm, cb, 24), "班级");
             }
+            // 整块信息区 OCR 兜底：分块识别不出的字段，用整块识别补全（提高手写字段识别率）
+            if (blank(out[0]) || blank(out[1]) || blank(out[2])) {
+                Map<String, String> w = ocrInfoWhole(cropBytes(norm, unionInfoBox(info), 24));
+                if (blank(out[0]) && w.get("no") != null) {
+                    out[0] = w.get("no");
+                }
+                if (blank(out[1]) && w.get("name") != null) {
+                    out[1] = w.get("name");
+                }
+                if (blank(out[2]) && w.get("class") != null) {
+                    out[2] = w.get("class");
+                }
+            }
         } catch (Exception e) {
             log.warn("考生信息区识别失败: {}", e.getMessage());
         }
@@ -847,6 +862,73 @@ public class GradingService {
         return !text.isEmpty() && text.length() <= 16
                 && text.matches("[\\u4e00-\\u9fa5A-Za-z0-9()（）·]+")
                 && (text.matches(".*[A-Za-z0-9].*") || text.length() >= 2);
+    }
+
+    /** 该字段尚未识别出可靠值（空、占位词），可被 OCR/人工更正覆盖 */
+    private static boolean unrecognized(String v) {
+        return v == null || v.isBlank() || "待确认".equals(v) || "未识别".equals(v);
+    }
+
+    /** 整块信息区 OCR：一次性识别姓名/班级/考号，作为分块 OCR 的兜底补全，最大限度保证记录内容完整 */
+    private Map<String, String> ocrInfoWhole(byte[] img) {
+        Map<String, String> m = new LinkedHashMap<>();
+        try {
+            if (img == null || !ocrClient.isAvailable()) {
+                return m;
+            }
+            String text = String.join("", ocrClient.recognizeText(img))
+                    .replaceAll("\\s+", "");
+            Matcher mn = Pattern.compile(
+                    "(?:姓名|娃名|姓|名)\\s*[：:]?\\s*([\\u4e00-\\u9fa5A-Za-z·]{1,16}?)\\s*(?=班级|考号|$)").matcher(text);
+            if (mn.find()) {
+                String v = cleanInfo(mn.group(1));
+                if (v != null) {
+                    m.put("name", v);
+                }
+            }
+            Matcher mc = Pattern.compile(
+                    "(?:班级|班|级)\\s*[：:]?\\s*([\\u4e00-\\u9fa5A-Za-z0-9()（）·]{1,20}?)\\s*(?=考号|$)").matcher(text);
+            if (mc.find()) {
+                String v = cleanInfo(mc.group(1));
+                if (v != null) {
+                    m.put("class", v);
+                }
+            }
+            Matcher mi = Pattern.compile("(?:考号|考|号)\\s*[：:]?\\s*(\\d{1,12})").matcher(text);
+            String no = null;
+            if (mi.find()) {
+                String cand = mi.group(1);
+                if (cand.length() >= 6 && cand.length() <= 8) {
+                    no = cand;
+                }
+            }
+            // 兜底：整块信息区内最长的 6~8 位连续数字串即为考号（年级「五1班」的 1 位、分数等短数字不会误命中）
+            if (no == null) {
+                Matcher dig = Pattern.compile("\\d{6,8}").matcher(text);
+                String best = null;
+                while (dig.find()) {
+                    String s = dig.group();
+                    if (best == null || s.length() > best.length()) {
+                        best = s;
+                    }
+                }
+                no = best;
+            }
+            if (no != null) {
+                m.put("no", no);
+            }
+        } catch (Exception ignored) {
+        }
+        return m;
+    }
+
+    /** 清理 OCR 文本中的残留标点 / 标签符号 */
+    private static String cleanInfo(String s) {
+        if (s == null) {
+            return null;
+        }
+        String t = s.replaceAll("[：:，,。.、\\-—－_/\\\\\\s]", "").trim();
+        return t.isEmpty() ? null : t;
     }
 
     /**
@@ -992,18 +1074,25 @@ public class GradingService {
         }
     }
 
-    /** 修改阅卷记录的班级/姓名（识别结果只有考号，班级姓名由老师补录） */
+    /** 修改阅卷记录的学号/班级/姓名：三者允许人工更正，更正后三者一致的记录在阅卷统计时会被合并为一条成绩 */
     @Transactional(rollbackFor = Exception.class)
-    public GradeSheet updateInfo(Long id, String className, String studentName) {
+    public GradeSheet updateInfo(Long id, String studentNo, String className, String studentName) {
         GradeSheet gs = gradeSheetMapper.selectById(id);
         if (gs == null) {
             throw new BizException("阅卷记录不存在");
         }
+        if (studentNo != null) {
+            String v = studentNo.trim();
+            // 占位词视为清空，回到待识别状态（unrecognized 仍可被 OCR/再更正覆盖）
+            gs.setStudentNo("未识别".equals(v) || v.isEmpty() ? "未识别" : v);
+        }
         if (className != null) {
-            gs.setClassName(className.trim());
+            String v = className.trim();
+            gs.setClassName("待确认".equals(v) || v.isEmpty() ? "待确认" : v);
         }
         if (studentName != null) {
-            gs.setStudentName(studentName.trim());
+            String v = studentName.trim();
+            gs.setStudentName("待确认".equals(v) || v.isEmpty() ? "待确认" : v);
         }
         gradeSheetMapper.updateById(gs);
         return gs;

@@ -802,13 +802,10 @@ public class ScanService {
             q.setSubject(doc.getSubject());
             q.setGrade(doc.getGrade());
             q.setKnowledge(strOf(item.get("knowledge"), ""));
+            q.setCourseNo(strOf(item.get("courseNo"), ""));
             String imagePath = strOf(item.get("imagePath"), "");
             q.setHasImage(imagePath.isBlank() ? 0 : 1);
             q.setImagePath(imagePath.isBlank() ? null : imagePath);
-            Object lessonOrder = item.get("lessonOrder");
-            if (lessonOrder != null) {
-                q.setLessonOrder(intOf(lessonOrder, 0));
-            }
             q.setSource("SCAN");
             q.setStatus("NORMAL");
             q.setDeleted(0);
@@ -864,6 +861,7 @@ public class ScanService {
             q.setSubject(doc.getSubject());
             q.setGrade(doc.getGrade());
             q.setKnowledge(pq.getKnowledge());
+            q.setCourseNo(pq.getCourseNo());
             List<String> imgs = imagesByQuestion.getOrDefault(idx, List.of());
             String path = !imgs.isEmpty() ? String.join(",", imgs) : pq.getImagePath();
             if (path != null && !path.isBlank()) {

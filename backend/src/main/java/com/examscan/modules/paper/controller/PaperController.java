@@ -120,15 +120,28 @@ public class PaperController {
         return R.ok();
     }
 
-    /** 导出 Word */
+    /**
+     * 导出 Word。
+     *
+     * @param answerMode 答案呈现：none（不含答案）/ inline（答案填在相应位置：填空逐空填入空位）/ separate（答案集中排在末页）
+     * @param withAnswer 兼容旧参数：true 等价于 answerMode=separate
+     */
     @GetMapping("/{id}/export")
     public ResponseEntity<?> export(@PathVariable Long id,
+                                    @RequestParam(required = false) String answerMode,
                                     @RequestParam(defaultValue = "false") boolean withAnswer) {
+        String mode = (answerMode == null || answerMode.isBlank())
+                ? (withAnswer ? "separate" : "none") : answerMode;
+        String tag = switch (mode) {
+            case "inline" -> "_含答案";
+            case "separate" -> "_含答案(答案页)";
+            default -> "";
+        };
         try {
             Map<String, Object> d = paperService.detail(id);
             Paper paper = (Paper) d.get("paper");
-            byte[] bytes = exportService.exportDocx(id, withAnswer);
-            String fn = URLEncoder.encode(paper.getTitle() + (withAnswer ? "_含答案" : "") + ".docx",
+            byte[] bytes = exportService.exportDocx(id, mode);
+            String fn = URLEncoder.encode(paper.getTitle() + tag + ".docx",
                     StandardCharsets.UTF_8).replace("+", "%20");
             return ResponseEntity.ok()
                     .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + fn)

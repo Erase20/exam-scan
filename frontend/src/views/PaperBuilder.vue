@@ -88,12 +88,12 @@
                   </el-select>
                 </el-form-item>
                 <el-form-item label="知识点"><el-input v-model="cq.knowledge" style="width:120px" clearable /></el-form-item>
-                <el-form-item label="课序">
-                  <el-select v-model="cq.lessonOrder" multiple clearable collapse-tags collapse-tags-tooltip
+                <el-form-item label="课号">
+                  <el-select v-model="cq.courseNo" multiple clearable collapse-tags collapse-tags-tooltip
                              placeholder="可单选/多选" style="width:150px">
-                    <el-option v-for="n in lessonOrderOpts" :key="n" :label="n" :value="n" />
+                    <el-option v-for="n in courseNoOpts" :key="n" :label="n" :value="n" />
                   </el-select>
-                  <el-checkbox v-model="cq.lessonOrderEmpty" style="margin-left:8px">仅看未设置</el-checkbox>
+                  <el-checkbox v-model="cq.courseNoEmpty" style="margin-left:8px">仅看未设置</el-checkbox>
                 </el-form-item>
                 <el-form-item label="配图">
                   <el-checkbox v-model="cq.hasImageOnly">仅看有图</el-checkbox>
@@ -120,8 +120,8 @@
                 <el-table-column label="难度" width="56">
                   <template #default="{ row }">{{ row.difficulty }}★</template>
                 </el-table-column>
-                <el-table-column label="课序" width="60">
-                  <template #default="{ row }">{{ row.lessonOrder == null ? '—' : row.lessonOrder }}</template>
+                <el-table-column label="课号" width="70">
+                  <template #default="{ row }">{{ row.courseNo || '—' }}</template>
                 </el-table-column>
               </el-table>
               <el-pagination style="margin-top:8px" layout="total, prev, pager, next" :total="poolTotal"
@@ -218,8 +218,16 @@
         <el-table-column label="操作" width="260">
           <template #default="{ row }">
             <el-button size="small" type="primary" @click="$router.push(`/papers/${row.id}`)">查看/调整</el-button>
-            <el-button size="small" @click="exportPaper(row.id, false)">导出试卷</el-button>
-            <el-button size="small" @click="exportPaper(row.id, true)">导出含答案</el-button>
+            <el-dropdown style="margin-left:12px" @command="m => exportPaper(row.id, m)">
+              <el-button size="small">导出 ▾</el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="none">试卷（不含答案）</el-dropdown-item>
+                  <el-dropdown-item command="inline">试卷 + 答案填在相应位置</el-dropdown-item>
+                  <el-dropdown-item command="separate">试卷 + 答案页（末页集中）</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-popconfirm title="删除该试卷？" @confirm="delPaper(row.id)">
               <template #reference><el-button size="small" type="danger">删除</el-button></template>
             </el-popconfirm>
@@ -274,10 +282,10 @@ async function build() {
 
 // ---------- 自定义组卷 ----------
 const cTitle = ref(''); const cSubject = ref('科学'); const cGrade = ref('六年级'); const cDuration = ref(90)
-const cq = reactive({ page: 1, size: 8, keyword: '', qType: '', difficulty: null, knowledge: '', subject: '', grade: '', lessonOrder: [], lessonOrderEmpty: false, hasImageOnly: false })
-const lessonOrderOpts = ref([])
-async function loadLessonOrders() {
-  lessonOrderOpts.value = await http.get('/question/lesson-orders').catch(() => [])
+const cq = reactive({ page: 1, size: 8, keyword: '', qType: '', difficulty: null, knowledge: '', subject: '', grade: '', courseNo: [], courseNoEmpty: false, hasImageOnly: false })
+const courseNoOpts = ref([])
+async function loadCourseNos() {
+  courseNoOpts.value = await http.get('/question/course-nos').catch(() => [])
 }
 const pool = ref([]); const poolTotal = ref(0); const poolLoading = ref(false)
 const poolSelection = ref([]); const poolTable = ref(null)
@@ -401,8 +409,8 @@ async function renameTitle(row) {
   } catch (e) { /* 取消或接口错误由拦截器提示 */ }
 }
 
-async function exportPaper(id, withAnswer) {
-  const resp = await fetch(`/api/paper/${id}/export?withAnswer=${withAnswer}`)
+async function exportPaper(id, mode = 'none') {
+  const resp = await fetch(`/api/paper/${id}/export?answerMode=${mode}`)
   const blob = await resp.blob()
   const cd = resp.headers.get('Content-Disposition') || ''
   let name = '试卷.docx'
@@ -419,7 +427,7 @@ async function delPaper(id) {
   loadPapers()
 }
 
-onMounted(() => { loadPapers(); loadPool(); loadLessonOrders() })
+onMounted(() => { loadPapers(); loadPool(); loadCourseNos() })
 </script>
 
 <style scoped>

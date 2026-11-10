@@ -37,6 +37,14 @@
         </el-col>
       </el-row>
 
+      <el-row :gutter="12">
+        <el-col :span="12">
+          <el-form-item label="课号">
+            <el-input v-model="form.courseNo" placeholder="如 K03 / 第3课" />
+          </el-form-item>
+        </el-col>
+      </el-row>
+
       <el-form-item label="配图">
         <div v-if="images.length" class="img-list">
           <div v-for="(u, i) in images" :key="u + i" class="img-item">
@@ -126,10 +134,10 @@ function init() {
     qType: q.qType || 'CHOICE',
     difficulty: Number(q.difficulty) || 3,
     knowledge: q.knowledge || '',
+    courseNo: q.courseNo || '',
     answer: q.answer || '',
     analysis: q.analysis || '',
-    // lessonOrder 在实体里是 IGNORED 更新策略，必须回传原值，否则会被清空
-    lessonOrder: q.lessonOrder == null ? null : Number(q.lessonOrder),
+
   }
   optRows.value = parseOpts(q.options)
   images.value = imgList(q.imagePath)
@@ -184,7 +192,7 @@ async function save() {
         options: opts,
         imagePath,
         hasImage: images.value.length ? 1 : 0,
-        lessonOrder: form.value.lessonOrder,
+        courseNo: form.value.courseNo,
       })
       ElMessage.success('草稿已更新，确认入库后写入题库')
       visible.value = false
@@ -201,7 +209,7 @@ async function save() {
       options: JSON.stringify(opts),
       imagePath,
       hasImage: images.value.length ? 1 : 0,
-      lessonOrder: form.value.lessonOrder,
+      courseNo: form.value.courseNo,
     }
     const saved = await http.post('/question', body)
     ElMessage.success('已保存到题库')

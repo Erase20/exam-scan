@@ -21,12 +21,12 @@
             <el-option v-for="n in 5" :key="n" :label="n + ' ★'" :value="n" />
           </el-select>
         </el-form-item>
-        <el-form-item label="课序">
-          <el-select v-model="q.lessonOrder" multiple clearable collapse-tags collapse-tags-tooltip
+        <el-form-item label="课号">
+          <el-select v-model="q.courseNo" multiple clearable collapse-tags collapse-tags-tooltip
                      placeholder="可单选/多选" style="width:200px">
-            <el-option v-for="n in lessonOrderOpts" :key="n" :label="n" :value="n" />
+            <el-option v-for="n in courseNoOpts" :key="n" :label="n" :value="n" />
           </el-select>
-          <el-checkbox v-model="q.lessonOrderEmpty" style="margin-left:8px">仅看未设置</el-checkbox>
+          <el-checkbox v-model="q.courseNoEmpty" style="margin-left:8px">仅看未设置</el-checkbox>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="load">搜索</el-button>
@@ -96,8 +96,11 @@
         </el-table-column>
         <el-table-column prop="subject" label="学科" width="80" sortable="custom" />
         <el-table-column prop="grade" label="年级" width="90" sortable="custom" />
-        <el-table-column prop="lessonOrder" label="课序" width="80" sortable="custom">
-          <template #default="{ row }">{{ row.lessonOrder == null ? '—' : row.lessonOrder }}</template>
+        <el-table-column prop="courseNo" label="课号" width="130" sortable="custom">
+          <template #default="{ row }">
+            <el-input v-model="row.courseNo" size="small" placeholder="课号"
+                      @click.stop @change="saveCourseNo(row)" />
+          </template>
         </el-table-column>
         <el-table-column label="难度" width="90">
           <template #default="{ row }"><el-rate :model-value="row.difficulty" disabled size="small" /></template>
@@ -193,8 +196,8 @@
               </el-form-item>
             </el-col>
             <el-col :span="12">
-              <el-form-item label="课序">
-                <el-input-number v-model="form.lessonOrder" :min="0" :step="1" :value-on-clear="null" controls-position="right" style="width:100%" />
+              <el-form-item label="课号">
+                <el-input v-model="form.courseNo" placeholder="如 K03 / 第3课 / 3" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
@@ -263,7 +266,7 @@
             <el-descriptions-item label="答案">{{ cur.answer || '（暂无）' }}</el-descriptions-item>
             <el-descriptions-item label="解析">{{ cur.analysis || '（暂无）' }}</el-descriptions-item>
             <el-descriptions-item label="知识点">{{ cur.knowledge || '（暂无）' }}</el-descriptions-item>
-            <el-descriptions-item label="课序">{{ cur.lessonOrder == null ? '（未设置）' : cur.lessonOrder }}</el-descriptions-item>
+            <el-descriptions-item label="课号">{{ cur.courseNo || '（未设置）' }}</el-descriptions-item>
             <el-descriptions-item label="入库时间">{{ fmtTime(cur.createTime) }}</el-descriptions-item>
             <el-descriptions-item v-if="cur.updateTime && cur.updateTime !== cur.createTime" label="更新时间">{{ fmtTime(cur.updateTime) }}</el-descriptions-item>
           </el-descriptions>
@@ -304,16 +307,16 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http, { Q_TYPE_LABELS } from '../api'
 
-const q = reactive({ page: 1, size: 10, keyword: '', qType: '', subject: '', difficulty: null, sortBy: '', sortOrder: '', lessonOrder: [], lessonOrderEmpty: false })
+const q = reactive({ page: 1, size: 10, keyword: '', qType: '', subject: '', difficulty: null, sortBy: '', sortOrder: '', courseNo: [], courseNoEmpty: false })
 const rows = ref([]); const total = ref(0); const loading = ref(false)
 const drawer = ref(false); const cur = ref(null); const simOfCur = ref([])
 const simText = ref(false); const simInput = ref(''); const simResults = ref([]); const simLoading = ref(false)
 const typeLabel = t => Q_TYPE_LABELS[t] || t
 const fmtTime = t => (t || '').slice(0, 16)
 const imgList = p => (p || '').split(',').map(s => s.trim()).filter(Boolean)
-const lessonOrderOpts = ref([])
-async function loadLessonOrders() {
-  lessonOrderOpts.value = await http.get('/question/lesson-orders').catch(() => [])
+const courseNoOpts = ref([])
+async function loadCourseNos() {
+  courseNoOpts.value = await http.get('/question/course-nos').catch(() => [])
 }
 const optList = computed(() => {
   try { return JSON.parse(cur.value?.options || '[]') } catch (e) { return [] }
@@ -341,7 +344,7 @@ function buildForm(row) {
     answer: row.answer || '', analysis: row.analysis || '', knowledge: row.knowledge || '',
     subject: row.subject || '', grade: row.grade || '',
     difficulty: Number(row.difficulty) || 3, score: Number(row.score) || 5,
-    lessonOrder: row.lessonOrder == null ? null : Number(row.lessonOrder),
+    courseNo: row.courseNo || '',
     source: row.source || 'SCAN',
   }
 }
@@ -429,6 +432,21 @@ async function saveEdit() {
   }
 }
 
+/** 列表内联更正课号：只提交 id + 课号，其余字段不传（不会被 updateById 清空） */
+async function saveCourseNo(row) {
+  try {
+    await http.post('/question', {
+      id: row.id,
+      courseNo: row.courseNo || '',
+    })
+    ElMessage.success('课号已保存')
+    if (cur.value && cur.value.id === row.id) cur.value = { ...cur.value, courseNo: row.courseNo || '' }
+  } catch (e) {
+    ElMessage.error('课号保存失败：' + (e?.message || e))
+    await load()
+  }
+}
+
 // ---------- 上一题 / 下一题导航 ----------
 // 按当前搜索/排序结果顺序在题目间切换，到页边界时自动翻页；
 // 编辑中未保存的修改会先询问「保存并切换」还是「放弃修改」。
@@ -454,7 +472,7 @@ function isDirty() {
     || (f.grade || '') !== (c.grade || '')
     || !eqNum(f.difficulty, c.difficulty)
     || !eqNum(f.score, c.score)
-    || !eqNum(f.lessonOrder, c.lessonOrder)
+    || (f.courseNo || '') !== (c.courseNo || '')
     || JSON.stringify(optsA) !== JSON.stringify(optsB)
     || images.value.join(',') !== imgList(c.imagePath).join(',')
 }
@@ -520,7 +538,7 @@ function startCreate() {
     id: null, qNo: '', qType: 'CHOICE', stem: '',
     answer: '', analysis: '', knowledge: '',
     subject: q.subject || '数学', grade: '',
-    difficulty: 3, score: 5, lessonOrder: null, source: 'MANUAL',
+    difficulty: 3, score: 5, courseNo: '', source: 'MANUAL',
   }
   optRows.value = ['A', 'B', 'C', 'D'].map(k => ({ key: k, content: '' }))
   images.value = []
@@ -655,7 +673,7 @@ async function doClear() {
 
 onMounted(async () => {
   await load()
-  await loadLessonOrders()
+  await loadCourseNos()
 })
 </script>
 

@@ -84,6 +84,8 @@ public class GradeStatsService {
                 : base.stream()
                     .filter(g -> className.equals(displayClass(g.getClassName())))
                     .collect(Collectors.toList());
+        // 同一考生（学号+班级+姓名一致且均已填写）的多条记录合并为一条成绩，避免重复计入
+        rows = mergeByIdentity(rows);
 
         BigDecimal full = resolveFullScore(paper, base);
         BigDecimal passLine = full.multiply(PASS_LINE_RATE);
@@ -380,5 +382,60 @@ public class GradeStatsService {
         }
         LocalDate day = time.toLocalDate();
         return (from == null || !day.isBefore(from)) && (to == null || !day.isAfter(to));
+    }
+
+    /**
+     * 阅卷统计去重：同一考生（学号 + 班级 + 姓名 三者一致且均已填写、非占位）的多条阅卷记录，
+     * 合并为一条代表成绩参与统计（取总分最高的一条），避免重复扫描 / 补扫 / 多次提交导致成绩被重复计入。
+     * 含未识别 / 待确认等占位内容的记录不参与合并，保留为独立明细，交由老师更正后再归并。
+     */
+    private List<GradeSheet> mergeByIdentity(List<GradeSheet> rows) {
+        Map<String, GradeSheet> merged = new LinkedHashMap<>();
+        int unknown = 0;
+        for (GradeSheet g : rows) {
+            String key = identityKey(g);
+            if (key == null) {
+                // 无法判定为同一考生，保留为独立明细
+                merged.put("__raw__" + (g.getId() == null ? "x" : g.getId()) + "#" + (unknown++), g);
+                continue;
+            }
+            GradeSheet cur = merged.get(key);
+            if (cur == null || isHigherScore(g, cur)) {
+                merged.put(key, g);
+            }
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private static String identityKey(GradeSheet g) {
+        String s = normalize(g.getStudentNo());
+        String c = normalize(g.getClassName());
+        String n = normalize(g.getStudentName());
+        if (s == null || c == null || n == null) {
+            return null;
+        }
+        return s + "\u0001" + c + "\u0001" + n;
+    }
+
+    private static String normalize(String v) {
+        if (v == null) {
+            return null;
+        }
+        String t = v.trim();
+        if (t.isEmpty() || "待确认".equals(t) || "未识别".equals(t)
+                || "未填班级".equals(t) || "null".equalsIgnoreCase(t)) {
+            return null;
+        }
+        return t;
+    }
+
+    private static boolean isHigherScore(GradeSheet a, GradeSheet b) {
+        int cmp = score(a).compareTo(score(b));
+        if (cmp != 0) {
+            return cmp > 0;
+        }
+        long ia = a.getId() == null ? 0L : a.getId();
+        long ib = b.getId() == null ? 0L : b.getId();
+        return ia > ib;
     }
 }

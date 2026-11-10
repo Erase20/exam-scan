@@ -135,6 +135,11 @@
               </el-table-column>
               <el-table-column prop="difficulty" label="难度" width="70" />
               <el-table-column prop="score" label="分值" width="70" />
+              <el-table-column label="课号" width="120">
+                <template #default="{ row }">
+                  <el-input v-model="row.courseNo" size="small" placeholder="课号" />
+                </template>
+              </el-table-column>
               <el-table-column label="操作" width="330">
                 <template #default="{ row }">
                   <el-button size="small" text type="primary" @click="editDraft(row)">编辑</el-button>
@@ -620,7 +625,7 @@ async function addDraftImage(opt, row) {
     row.imagePath = list.join(',')
     row.hasImage = 1
     if (imported.value && row.id) {
-      // 带上完整实体再保存，避免 updateById 把课序、题号等未传字段清空
+      // 带上完整实体再保存，避免 updateById 把课号、题号等未传字段清空
       const full = await http.get(`/question/${row.id}`)
       await http.post('/question', { ...full, imagePath: row.imagePath, hasImage: 1 })
       ElMessage.success('配图已保存到题库')

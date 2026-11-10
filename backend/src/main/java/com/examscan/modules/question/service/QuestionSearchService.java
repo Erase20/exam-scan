@@ -69,11 +69,11 @@ public class QuestionSearchService {
         if (q.getHasImage() != null) {
             w.eq(Question::getHasImage, q.getHasImage());
         }
-        // 课序筛选：单选/多选（IN）；或仅筛「未设置」
-        if (Boolean.TRUE.equals(q.getLessonOrderEmpty())) {
-            w.isNull(Question::getLessonOrder);
-        } else if (q.getLessonOrder() != null && !q.getLessonOrder().isEmpty()) {
-            w.in(Question::getLessonOrder, q.getLessonOrder());
+        // 课号筛选：单选/多选（IN）；或仅筛「未设置」（课号为字符串，空串也视为未设置）
+        if (Boolean.TRUE.equals(q.getCourseNoEmpty())) {
+            w.and(x -> x.isNull(Question::getCourseNo).or().eq(Question::getCourseNo, ""));
+        } else if (q.getCourseNo() != null && !q.getCourseNo().isEmpty()) {
+            w.in(Question::getCourseNo, q.getCourseNo());
         }
         if (q.getKeyword() != null && !q.getKeyword().isBlank()) {
             // 多关键词 AND：每个词都要在题干/答案里出现
@@ -99,7 +99,7 @@ public class QuestionSearchService {
             "grade", "grade",
             "knowledge", "knowledge",
             "seq", "seq",
-            "lessonOrder", "lesson_order",
+            "courseNo", "course_no",
             "createTime", "create_time"
     );
 
@@ -124,7 +124,7 @@ public class QuestionSearchService {
         String dir = asc ? "ASC" : "DESC";
         String expr = "q_type".equals(col) ? typeOrderExpr() : col;
         // 文本列才需要「空值排最后」；数值/时间列与空串比较会报类型错误
-        boolean textCol = !"seq".equals(col) && !"create_time".equals(col) && !"lesson_order".equals(col);
+        boolean textCol = !"seq".equals(col) && !"create_time".equals(col);
         String head = textCol
                 ? "CASE WHEN " + col + " IS NULL OR " + col + " = '' THEN 1 ELSE 0 END, "
                 : "";
@@ -209,15 +209,31 @@ public class QuestionSearchService {
         return m;
     }
 
-    /** 题库中已设置的课序去重列表（升序），供前端筛选下拉框使用 */
-    public List<Integer> distinctLessonOrders() {
+    /** 题库中已设置的课号去重列表（自然升序），供前端筛选下拉框使用 */
+    public List<String> distinctCourseNos() {
         List<Object> objs = questionMapper.selectObjs(
-                new LambdaQueryWrapper<Question>().select(Question::getLessonOrder).isNotNull(Question::getLessonOrder));
+                new LambdaQueryWrapper<Question>().select(Question::getCourseNo).isNotNull(Question::getCourseNo));
         return objs.stream()
                 .filter(Objects::nonNull)
-                .map(o -> ((Number) o).intValue())
-                .distinct().sorted()
+                .map(String::valueOf)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct().sorted(QuestionSearchService::compareCourseNo)
                 .collect(Collectors.toList());
+    }
+
+    /** 纯数字课号按数值比较（2 排在 10 前），其余按字典序；数字课号排在文本课号之前 */
+    private static int compareCourseNo(String a, String b) {
+        boolean na = a.matches("\\d+"), nb = b.matches("\\d+");
+        if (na && nb) {
+            // 先比长度再比字典序，避免超长课号 parseLong 溢出
+            int cmp = Integer.compare(a.length(), b.length());
+            return cmp != 0 ? cmp : a.compareTo(b);
+        }
+        if (na != nb) {
+            return na ? -1 : 1;
+        }
+        return a.compareTo(b);
     }
 
     // ---------------- 向量化 ----------------
