@@ -707,11 +707,19 @@ public class QuestionSplitter {
     /** 空括号（OCR 侧按横线位置补回的填空位，可能被清洗规则转成半角） */
     private static final Pattern BLANK_BRACKET = Pattern.compile("[（(][\\s　]*[）)]");
 
+    /**
+     * 判断题句尾括号：题干以（　　）/() 结尾（判断题打√/×的标准形态）。
+     * 填空题的空位通常在句中，句尾空括号且无横线时按判断题处理，
+     * 否则大题标题漏识别时整块判断题会被"带空位=填空"规则刷成填空题。
+     */
+    private static final Pattern JUDGE_TAIL = Pattern.compile(
+            "[（(][\\s　]*[）)]\\s*[。．.，,？?！!]?\\s*$");
+
     private static final String BLANK_TEXT = "（　　）";
 
     /**
-     * 题型判定：有选项 -> 选择；题干带横线空格 -> 填空（优先于大题上下文）；
-     * 其次大题上下文，最后靠题干特征
+     * 题型判定：有选项 -> 选择；大题标明判断 / 题干句尾空括号 -> 判断；
+     * 题干带横线空格 -> 填空；其次大题上下文，最后靠题干特征
      */
     private String detectType(String sectionType, String stem, List<Map<String, String>> options) {
         // 有完整选项 -> 一定是选择题
@@ -720,6 +728,13 @@ public class QuestionSplitter {
         }
         // 大题已标明判断题：判断题末尾的打勾括号不能被"有空位=填空"误判成填空题
         if (QuestionType.JUDGE.name().equals(sectionType)) {
+            return QuestionType.JUDGE.name();
+        }
+        // 判断题标准形态：题干以空括号结尾（打√/×的括号），且题干没有横线填空。
+        // 放在"带空位=填空"之前，否则大题标题漏识别时整块判断题会被判成填空题
+        if (stem != null
+                && JUDGE_TAIL.matcher(stem).find()
+                && !BLANK_PATTERN.matcher(stem).find()) {
             return QuestionType.JUDGE.name();
         }
         // 题干带横线空格或填空括号 -> 填空题（所有带空位的一律按填空题）
@@ -733,8 +748,8 @@ public class QuestionSplitter {
         if (stem == null) {
             return QuestionType.OTHER.name();
         }
-        // 判断
-        if (Pattern.compile("(判断|对的|错的|是否正确|√|×)").matcher(stem).find()
+        // 判断（无大题上下文时靠特征词兜底）
+        if (Pattern.compile("(判断|对的|错的|是否正确|√|×|对吗|正确吗|说法对|打“√”|画“√”|打“×”)").matcher(stem).find()
                 && stem.length() < 80) {
             return QuestionType.JUDGE.name();
         }
@@ -747,13 +762,15 @@ public class QuestionSplitter {
                 && Pattern.compile("(为什么|如何|设计|步骤|结论|现象|原因)").matcher(stem).find()) {
             return QuestionType.EXPERIMENT.name();
         }
-        // 计算
-        if (Pattern.compile("(计算|求|解方程|化简|求证|多少|几[个何只本支千]|等于)").matcher(stem).find()
+        // 计算：只认强特征词或"求+几何量/值"结构。
+        // 单独的"求/多少/等于"太宽泛，会把"一共有多少"这类解答/应用题误判成计算题
+        if ((Pattern.compile("(计算|解方程|化简|求值|求证|解比例|脱式|估算)").matcher(stem).find()
+                || Pattern.compile("求.{0,12}(面积|周长|体积|表面积|值|路程|速度|单价|总价)").matcher(stem).find())
                 && stem.length() < 150) {
             return QuestionType.CALC.name();
         }
         // 解答
-        if (Pattern.compile("(说明|解释|分析|简述|为什么|原因|谈谈|写出|回答)").matcher(stem).find()) {
+        if (Pattern.compile("(说明|解释|分析|简述|为什么|原因|谈谈|写出|回答|解决问题|一共|还剩|平均每个)").matcher(stem).find()) {
             return QuestionType.ANSWER.name();
         }
         return QuestionType.OTHER.name();
