@@ -13,6 +13,8 @@ import com.examscan.modules.paper.mapper.PaperMapper;
 import com.examscan.modules.question.entity.Question;
 import com.examscan.modules.question.mapper.QuestionMapper;
 import com.examscan.modules.scan.service.OcrClient;
+import com.examscan.modules.student.service.StudentService;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +58,7 @@ public class GradingService {
     private final QuestionMapper questionMapper;
     private final ObjectMapper json = new ObjectMapper();
     private final OcrClient ocrClient;
+    private final StudentService studentService;
 
     @Value("${exam-scan.storage.root:./data/storage}")
     private String storageRoot;
@@ -381,6 +384,8 @@ public class GradingService {
         } catch (Exception ignored) {
         }
         gradeSheetMapper.insert(gs);
+        // 考生自动补录：按考号登记到考生表（失败不影响阅卷主流程）
+        studentService.upsertFromGrading(gs.getStudentNo(), gs.getStudentName(), gs.getClassName());
 
         // 保存答题卡原图，供阅卷记录回看与导出
         if (imageBytes != null && imageBytes.length > 0) {
@@ -1071,6 +1076,67 @@ public class GradingService {
         } catch (Exception e) {
             log.warn("选区截取失败: {}", e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * 按题查错：某道题失分（得分 < 满分）的考生列表。
+     * 从每条阅卷记录的逐题明细（detailJson）里取该题得分与卷面满分比较。
+     */
+    public List<Map<String, Object>> wrongStudents(Long paperId, Long paperItemId) {
+        PaperItem item = itemMapper.selectById(paperItemId);
+        if (item == null) {
+            throw new BizException("题目明细不存在");
+        }
+        BigDecimal full = item.getScore() == null ? BigDecimal.ZERO : item.getScore();
+        List<GradeSheet> sheets = gradeSheetMapper.selectList(new LambdaQueryWrapper<GradeSheet>()
+                .eq(GradeSheet::getPaperId, paperId)
+                .orderByAsc(GradeSheet::getId));
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (GradeSheet gs : sheets) {
+            BigDecimal got = null;
+            if (gs.getDetailJson() != null && !gs.getDetailJson().isBlank()) {
+                try {
+                    for (Map<String, Object> d : json.readValue(gs.getDetailJson(),
+                            new TypeReference<List<Map<String, Object>>>() {
+                            })) {
+                        if (d.get("paperItemId") != null
+                                && String.valueOf(d.get("paperItemId")).equals(String.valueOf(paperItemId))) {
+                            got = toScore(d.get("gotScore"));
+                            break;
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("按题查错解析明细失败 gradeId={}: {}", gs.getId(), e.getMessage());
+                }
+            }
+            // 没有该题明细的记录（旧数据/截图模式）按 0 分视为出错
+            if (got == null) {
+                got = BigDecimal.ZERO;
+            }
+            if (got.compareTo(full) < 0) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("gradeId", gs.getId());
+                m.put("studentNo", gs.getStudentNo());
+                m.put("studentName", gs.getStudentName());
+                m.put("className", gs.getClassName());
+                m.put("gotScore", got);
+                m.put("fullScore", full);
+                m.put("createTime", gs.getCreateTime());
+                out.add(m);
+            }
+        }
+        return out;
+    }
+
+    private static BigDecimal toScore(Object o) {
+        if (o == null) {
+            return null;
+        }
+        try {
+            return new BigDecimal(String.valueOf(o));
+        } catch (Exception e) {
+            return null;
         }
     }
 

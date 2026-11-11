@@ -13,6 +13,7 @@ const router = createRouter({
     { path: '/sheets', component: () => import('../views/SheetList.vue') },
     { path: '/grading', component: () => import('../views/GradingView.vue') },
     { path: '/grading-stats', component: () => import('../views/GradingStats.vue') },
+    { path: '/students', component: () => import('../views/StudentView.vue') },
     // 手机端专属页面：无侧栏独立布局
     { path: '/m', component: () => import('../views/MobileHome.vue'), meta: { plain: true } },
     { path: '/m/grade', component: () => import('../views/MobileGrade.vue'), meta: { plain: true } },

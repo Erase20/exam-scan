@@ -13,6 +13,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xwpf.usermodel.*;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPageMar;
 import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTSectPr;
@@ -364,5 +372,73 @@ public class PaperExportService {
 
     private static String fmt(BigDecimal b) {
         return b == null ? "0" : b.stripTrailingZeros().toPlainString();
+    }
+
+    /**
+     * 导出题号对照表（Excel）：卷内大题/题号 与 题库 ID、题型、题干摘要、分值的映射。
+     * Word 导出的试卷按大题重编了题号（1．2．3．…），打印后再导入/扫描时
+     * 可用本表把卷内题号对照回题库原题（题库 ID 一列即为导入时的对应键）。
+     */
+    public byte[] exportNumbering(Long paperId) {
+        Paper paper = paperMapper.selectById(paperId);
+        if (paper == null) {
+            throw new IllegalArgumentException("试卷不存在");
+        }
+        List<PaperItem> items = itemMapper.selectList(new LambdaQueryWrapper<PaperItem>()
+                .eq(PaperItem::getPaperId, paperId)
+                .orderByAsc(PaperItem::getSectionNo)
+                .orderByAsc(PaperItem::getSortNo));
+        Map<Long, Question> qMap = new HashMap<>();
+        List<Long> qids = items.stream().map(PaperItem::getQuestionId).distinct().toList();
+        if (!qids.isEmpty()) {
+            for (Question q : questionMapper.selectBatchIds(qids)) {
+                qMap.put(q.getId(), q);
+            }
+        }
+        try (Workbook wb = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = wb.createSheet("题号对照表");
+            String[] headers = {"大题序号", "大题名称", "卷内题号", "题型", "题干摘要", "分值", "题库ID"};
+            CellStyle bold = wb.createCellStyle();
+            Font f = wb.createFont();
+            f.setBold(true);
+            bold.setFont(f);
+            Row head = sheet.createRow(0);
+            for (int i = 0; i < headers.length; i++) {
+                Cell c = head.createCell(i);
+                c.setCellValue(headers[i]);
+                c.setCellStyle(bold);
+                sheet.setColumnWidth(i, i == 4 ? 14000 : 4000);
+            }
+            int row = 1;
+            int no = 0;
+            int prevSection = -1;
+            for (PaperItem it : items) {
+                if (it.getSectionNo() != prevSection) {
+                    prevSection = it.getSectionNo();
+                    no = 1;
+                }
+                Question q = qMap.get(it.getQuestionId());
+                Row r = sheet.createRow(row++);
+                r.createCell(0).setCellValue(prevSection);
+                r.createCell(1).setCellValue(safe(it.getSectionName()));
+                r.createCell(2).setCellValue(no);
+                r.createCell(3).setCellValue(q == null ? "" : QuestionType.of(q.getQType()).getLabel());
+                r.createCell(4).setCellValue(q == null ? "" : briefStem(q.getStem()));
+                r.createCell(5).setCellValue(fmt(it.getScore()));
+                r.createCell(6).setCellValue(it.getQuestionId() == null ? "" : String.valueOf(it.getQuestionId()));
+                no++;
+            }
+            wb.write(out);
+            return out.toByteArray();
+        } catch (Exception e) {
+            log.error("导出题号对照表失败", e);
+            throw new IllegalStateException("导出失败: " + e.getMessage());
+        }
+    }
+
+    /** 题干摘要：压掉换行，最多保留 40 字 */
+    private static String briefStem(String s) {
+        String t = safe(s).replaceAll("\\s+", " ").trim();
+        return t.length() > 40 ? t.substring(0, 40) + "…" : t;
     }
 }

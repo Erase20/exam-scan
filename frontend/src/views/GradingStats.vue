@@ -164,6 +164,39 @@
           </el-table-column>
         </el-table>
       </div>
+
+      <!-- 按题查错 -->
+      <div class="page-card">
+        <div class="card-head">
+          <h3>按题查错</h3>
+          <span>选择题目，查看该题失分的考生名单</span>
+        </div>
+        <el-form inline>
+          <el-form-item label="题目">
+            <el-select v-model="wrongItemId" filterable style="width:400px" placeholder="选择题目">
+              <el-option v-for="q in paperQuestions" :key="q.item.id"
+                         :label="`第${q.no}题（${q.item.sectionName}）${q.brief}`" :value="q.item.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="loadWrong" :loading="wrongLoading"
+                       :disabled="!wrongItemId">查询失分考生</el-button>
+          </el-form-item>
+        </el-form>
+        <el-table v-if="wrongList.length" :data="wrongList" size="small" border max-height="320">
+          <el-table-column prop="className" label="班级" min-width="110" />
+          <el-table-column prop="studentName" label="姓名" min-width="100" />
+          <el-table-column prop="studentNo" label="考号" min-width="120">
+            <template #default="{ row }">{{ row.studentNo || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="该题得分" width="130" align="center">
+            <template #default="{ row }">
+              <span :class="{ 'score-blue': row.gotScore > 0 }">{{ fmt(row.gotScore) }} / {{ fmt(row.fullScore) }}</span>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else-if="wrongSearched" description="该题没有失分考生（或该批记录无逐题明细）" :image-size="60" />
+      </div>
     </template>
 
     <div v-else-if="!loading" class="page-card">
@@ -264,6 +297,54 @@ async function load() {
     stats.value = null
   } finally {
     loading.value = false
+  }
+  loadQuestions()
+}
+
+// ---------------- 按题查错 ----------------
+
+const paperQuestions = ref([])
+const wrongItemId = ref(null)
+const wrongList = ref([])
+const wrongLoading = ref(false)
+const wrongSearched = ref(false)
+
+/** 拉取试卷题目列表，供按题查错下拉选择（卷内题号按大题内顺序重编） */
+async function loadQuestions() {
+  wrongItemId.value = null
+  wrongList.value = []
+  wrongSearched.value = false
+  if (!paperId.value) {
+    paperQuestions.value = []
+    return
+  }
+  const d = await http.get(`/paper/${paperId.value}`).catch(() => null)
+  let no = 0
+  let prev = null
+  paperQuestions.value = (d?.items || []).map(r => {
+    if (r.item.sectionNo !== prev) {
+      prev = r.item.sectionNo
+      no = 1
+    } else {
+      no++
+    }
+    const stem = String(r.question?.stem || '').replace(/\s+/g, ' ')
+    return { item: r.item, no, brief: stem.length > 26 ? stem.slice(0, 26) + '…' : stem }
+  })
+}
+
+async function loadWrong() {
+  if (!paperId.value || !wrongItemId.value) return
+  wrongLoading.value = true
+  try {
+    wrongList.value = await http.get('/grading/wrong-students', {
+      params: { paperId: paperId.value, paperItemId: wrongItemId.value },
+    })
+  } catch {
+    wrongList.value = []
+  } finally {
+    wrongLoading.value = false
+    wrongSearched.value = true
   }
 }
 

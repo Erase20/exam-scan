@@ -19,6 +19,8 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
+      <el-button @click="exportNumbering">导出题号对照表</el-button>
+      <el-button type="info" plain @click="shuffleItems" :loading="shuffling">随机排序</el-button>
       <el-button type="success" @click="genSheet" :loading="genLoading">生成答题卡</el-button>
       <el-button type="primary" plain @click="openAddPicker">＋ 从题库添加题目</el-button>
     </div>
@@ -112,7 +114,7 @@ import QuestionEditDialog from '../components/QuestionEditDialog.vue'
 import QuestionPickerDialog from '../components/QuestionPickerDialog.vue'
 
 const route = useRoute()
-const paper = ref(null); const items = ref([]); const genLoading = ref(false)
+const paper = ref(null); const items = ref([]); const genLoading = ref(false); const shuffling = ref(false)
 const editVisible = ref(false); const editQuestion = ref(null)
 const pickerVisible = ref(false); const pickerTarget = ref(null)  // null=添加题目，row=替换该题
 // ---------- 试卷预览 ----------
@@ -258,6 +260,31 @@ async function genSheet() {
     const s = await http.post(`/answer-sheet/generate?paperId=${paper.value.id}`)
     ElMessage.success('答题卡已生成，去「答题卡」页面查看')
   } finally { genLoading.value = false }
+}
+
+async function shuffleItems() {
+  shuffling.value = true
+  try {
+    const r = await http.post(`/paper/${paper.value.id}/shuffle`)
+    const n = r?.sheetsRegenerated || 0
+    ElMessage.success(n > 0
+      ? `已随机打乱各大题内的小题顺序，${n} 张答题卡已同步重新排版`
+      : '已随机打乱各大题内的小题顺序')
+    await load()
+  } catch (e) { /* 拦截器提示 */ } finally { shuffling.value = false }
+}
+
+async function exportNumbering() {
+  const resp = await fetch(`/api/paper/${paper.value.id}/export/numbering`)
+  if (!resp.ok) {
+    ElMessage.error('导出失败')
+    return
+  }
+  const blob = await resp.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = paper.value.title + '_题号对照表.xlsx'
+  a.click()
 }
 
 async function exportPaper(mode = 'none') {

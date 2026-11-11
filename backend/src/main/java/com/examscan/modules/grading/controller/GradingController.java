@@ -69,6 +69,13 @@ public class GradingController {
                 body.get("className"), body.get("studentName")));
     }
 
+    /** 按题查错：某道题失分（得分 < 满分）的考生列表 */
+    @GetMapping("/wrong-students")
+    public R<List<Map<String, Object>>> wrongStudents(@RequestParam Long paperId,
+                                                      @RequestParam Long paperItemId) {
+        return R.ok(service.wrongStudents(paperId, paperItemId));
+    }
+
     /** 答题卡原图 */
     @GetMapping("/{id}/image")
     public ResponseEntity<byte[]> image(@PathVariable Long id) {

@@ -482,6 +482,59 @@ public class PaperService {
         itemMapper.updateById(neighbor);
     }
 
+    /**
+     * 同一大题内小题随机打乱（选择、判断组内同样打乱），大题之间顺序不变。
+     * 打乱后重新生成该试卷的答题卡，使卷面题号与新顺序一致。
+     *
+     * @return 打乱的大题数与重新生成的答题卡数
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> shuffleItems(Long paperId) {
+        List<PaperItem> items = itemMapper.selectList(new LambdaQueryWrapper<PaperItem>()
+                .eq(PaperItem::getPaperId, paperId)
+                .orderByAsc(PaperItem::getSectionNo)
+                .orderByAsc(PaperItem::getSortNo));
+        if (items.isEmpty()) {
+            throw new BizException("试卷还没有题目");
+        }
+        // 按大题分组，组内随机
+        Map<Integer, List<PaperItem>> sections = new LinkedHashMap<>();
+        for (PaperItem it : items) {
+            sections.computeIfAbsent(it.getSectionNo(), k -> new ArrayList<>()).add(it);
+        }
+        int changedSections = 0;
+        for (List<PaperItem> group : sections.values()) {
+            if (group.size() < 2) {
+                continue;
+            }
+            List<PaperItem> shuffled = new ArrayList<>(group);
+            Collections.shuffle(shuffled);
+            if (shuffled.equals(group)) {
+                Collections.shuffle(shuffled);
+            }
+            for (int i = 0; i < shuffled.size(); i++) {
+                PaperItem it = shuffled.get(i);
+                if (it.getSortNo() == null || it.getSortNo() != i + 1) {
+                    it.setSortNo(i + 1);
+                    itemMapper.updateById(it);
+                }
+            }
+            changedSections++;
+        }
+        // 已生成答题卡的重新排版，使答题卡题号顺序与打乱后一致
+        int sheets = 0;
+        Long cnt = answerSheetMapper.selectCount(new LambdaQueryWrapper<AnswerSheet>()
+                .eq(AnswerSheet::getPaperId, paperId)
+                .eq(AnswerSheet::getDeleted, 0));
+        if (cnt != null && cnt > 0) {
+            sheets = regenerateSheets(paperId);
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("sections", changedSections);
+        out.put("sheetsRegenerated", sheets);
+        return out;
+    }
+
     /** 向试卷追加一道题（放到指定大题末尾） */
     @Transactional(rollbackFor = Exception.class)
     public void addItem(Long paperId, Long questionId, String qType, BigDecimal score) {

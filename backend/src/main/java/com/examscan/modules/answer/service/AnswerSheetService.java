@@ -346,8 +346,8 @@ public class AnswerSheetService {
                 y += rows * cellH + gapBubble;
 
             } else if (fillSection) {
-                // 填空题：每题独占一整行 + 单/双行横线，作答空间更大、扫描裁剪更稳
-                int fillCols = 1;
+                // 填空题：左右两列排布 + 单/双行横线，节省版面；裁剪框按 cell 坐标走不受影响
+                int fillCols = 2;
                 int fillGap = 40;
                 int fillCellW = (PAGE_W - 2 * MARGIN - 80 - fillGap) / fillCols;
                 for (int r = 0; r < group.size(); r += fillCols) {
@@ -465,18 +465,18 @@ public class AnswerSheetService {
         return fillLineCount(score) * lineGap + 16;
     }
 
-    /** 解答/计算/实验的横线条数：按题型与分值给 4~9 行，最少 4 行 */
+    /** 解答/计算/实验的横线条数：4 行起步，高分题适当加到 5~6 行 */
     private static int answerLineCount(String qType, BigDecimal score) {
         double s = score == null ? 6 : score.doubleValue();
         int lines;
         if ("CALC".equals(qType)) {
-            lines = s <= 4 ? 4 : (s <= 8 ? 5 : 7);
+            lines = s <= 4 ? 4 : (s <= 8 ? 5 : 6);
         } else if ("EXPERIMENT".equals(qType)) {
-            lines = s <= 6 ? 4 : (s <= 10 ? 6 : 8);
+            lines = s <= 6 ? 4 : (s <= 10 ? 5 : 6);
         } else {
-            lines = s <= 4 ? 4 : (s <= 8 ? 5 : (s <= 12 ? 7 : 9));
+            lines = s <= 4 ? 4 : (s <= 8 ? 5 : 6);
         }
-        return Math.max(MIN_ANSWER_LINES, Math.min(9, lines));
+        return Math.max(MIN_ANSWER_LINES, Math.min(6, lines));
     }
 
     /** 续页的大题标题（保持题号与分值信息连续） */

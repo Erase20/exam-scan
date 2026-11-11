@@ -101,6 +101,31 @@ public class PaperController {
         return R.ok();
     }
 
+    /** 同一大题内小题随机打乱（选择/判断组内同样打乱），大题顺序不变；答题卡自动重新排版 */
+    @PostMapping("/{id}/shuffle")
+    public R<Map<String, Object>> shuffle(@PathVariable Long id) {
+        return R.ok(paperService.shuffleItems(id));
+    }
+
+    /** 导出题号对照表（Excel）：卷内大题/题号 ↔ 题库 ID 映射，供打印后导入/扫描时对照 */
+    @GetMapping("/{id}/export/numbering")
+    public ResponseEntity<?> exportNumbering(@PathVariable Long id) {
+        try {
+            Map<String, Object> d = paperService.detail(id);
+            Paper paper = (Paper) d.get("paper");
+            byte[] bytes = exportService.exportNumbering(id);
+            String fn = URLEncoder.encode(paper.getTitle() + "_题号对照表.xlsx",
+                    StandardCharsets.UTF_8).replace("+", "%20");
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + fn)
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(bytes);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).contentType(MediaType.APPLICATION_JSON)
+                    .body(R.fail("导出失败: " + e.getMessage()));
+        }
+    }
+
     /** 向试卷追加题目 */
     @PostMapping("/{paperId}/item")
     public R<Void> addItem(@PathVariable Long paperId,

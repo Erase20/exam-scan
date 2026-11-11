@@ -53,7 +53,7 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
-import { Menu, Close, Fold, Expand, Odometer, Camera, Collection, Document, Grid, Checked, UploadFilled, DataAnalysis } from '@element-plus/icons-vue'
+import { Menu, Close, Fold, Expand, Odometer, Camera, Collection, Document, Grid, Checked, UploadFilled, DataAnalysis, User } from '@element-plus/icons-vue'
 import { isMobile } from './utils/mobile'
 
 const menus = [
@@ -65,6 +65,7 @@ const menus = [
   { path: '/sheets', icon: Grid, label: '答题卡' },
   { path: '/grading', icon: Checked, label: '扫描阅卷' },
   { path: '/grading-stats', icon: DataAnalysis, label: '阅卷统计' },
+  { path: '/students', icon: User, label: '考生管理' },
 ]
 
 const route = useRoute()
