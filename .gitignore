@@ -32,6 +32,9 @@ ocr-service/__pycache__/
 ocr-service/.venv/
 *.py[cod]
 
+# ---- 本地构建工具 / 临时导出 ----
+.tools/
+
 # ---- IDE / 操作系统 ----
 .idea/
 .vscode/
