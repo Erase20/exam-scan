@@ -112,7 +112,8 @@ CREATE TABLE IF NOT EXISTS paper_item (
     section_name   VARCHAR(100),
     q_type         VARCHAR(20) NOT NULL,
     sort_no        INT DEFAULT 0,
-    score          DECIMAL(5,1) DEFAULT 5.0
+    score          DECIMAL(5,1) DEFAULT 5.0,
+    option_order   VARCHAR(60)
 );
 
 CREATE TABLE IF NOT EXISTS answer_sheet (
@@ -163,3 +164,5 @@ ALTER TABLE question ADD COLUMN IF NOT EXISTS seq INT DEFAULT 0;
 ALTER TABLE grade_sheet ADD COLUMN IF NOT EXISTS class_name VARCHAR(50);
 -- 阅卷模式：ocr=全部OCR / fast=快速截图（不调 OCR）
 ALTER TABLE grade_sheet ADD COLUMN IF NOT EXISTS mode VARCHAR(10) DEFAULT 'ocr';
+-- 选项随机重排映射（新位置 i 显示原选项 order[i]；null=未重排）
+ALTER TABLE paper_item ADD COLUMN IF NOT EXISTS option_order VARCHAR(60);

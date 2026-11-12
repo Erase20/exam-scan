@@ -221,6 +221,23 @@ public class StudentService {
         return l.isEmpty() ? null : l.get(0);
     }
 
+    /** 阅卷核对：按考号精确匹配考生库；未登记返回 null */
+    public Student matchByNo(String studentNo) {
+        String no = trimToNull(studentNo);
+        return no == null ? null : findByNo(no);
+    }
+
+    /** 阅卷核对：按姓名精确匹配；仅当库中唯一命中时返回（重名不猜，避免张冠李戴） */
+    public Student matchByName(String name) {
+        String n = trimToNull(name);
+        if (n == null || "待确认".equals(n)) {
+            return null;
+        }
+        List<Student> l = studentMapper.selectList(new LambdaQueryWrapper<Student>()
+                .eq(Student::getName, n));
+        return l.size() == 1 ? l.get(0) : null;
+    }
+
     private static String str(Cell cell) {
         if (cell == null) {
             return null;

@@ -162,9 +162,13 @@ CREATE TABLE paper_item (
     q_type         VARCHAR(20) NOT NULL                COMMENT '题型冗余',
     sort_no        INT         NOT NULL DEFAULT 0      COMMENT '卷内顺序',
     score          DECIMAL(5,1) NOT NULL DEFAULT 5.0   COMMENT '本卷分值',
+    option_order   VARCHAR(60)          DEFAULT NULL   COMMENT '选项随机重排映射(JSON数组, 新位置i显示原选项order[i]; NULL=未重排)',
     PRIMARY KEY (id),
     KEY idx_item_paper (paper_id, sort_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='试卷题目明细';
+
+-- 旧库升级：paper_item 补选项重排映射列
+-- ALTER TABLE paper_item ADD COLUMN option_order VARCHAR(60) DEFAULT NULL COMMENT '选项随机重排映射';
 
 -- ------------------------------------------------------------
 -- 6. 答题卡模板

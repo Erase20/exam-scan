@@ -13,6 +13,7 @@ import com.examscan.modules.paper.mapper.PaperMapper;
 import com.examscan.modules.question.entity.Question;
 import com.examscan.modules.question.mapper.QuestionMapper;
 import com.examscan.modules.scan.service.OcrClient;
+import com.examscan.modules.student.entity.Student;
 import com.examscan.modules.student.service.StudentService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -242,6 +243,8 @@ public class GradingService {
                     standard = "B";
                 }
             }
+            // 选择题选项随机重排后，标准答案同步映射到新的涂点字母
+            standard = remapStandardAnswer(standard, it.getOptionOrder());
             String verdict;
             BigDecimal got;
 
@@ -358,6 +361,8 @@ public class GradingService {
                     }
                 }
                 fillMissingStudentInfo(existing, pageStudent);
+                matchStudentLibrary(existing);
+                gradeSheetMapper.updateById(existing);
                 return gradeOut(existing, prev, useOcr);
             }
         }
@@ -372,6 +377,8 @@ public class GradingService {
                 : (pageStudent[0] == null ? "" : pageStudent[0]));
         gs.setStudentName(pageStudent[1] == null || pageStudent[1].isBlank() ? "待确认" : pageStudent[1]);
         gs.setClassName(pageStudent[2] == null ? "" : pageStudent[2]);
+        // 与考生库核对：考号能对上的直接采用库内姓名/班级（手写识别不准时以考生库为准）
+        matchStudentLibrary(gs);
         gs.setObjectiveScore(objectiveScore);
         gs.setSubjectiveScore(BigDecimal.ZERO);
         gs.setTotalScore(total);
@@ -550,6 +557,62 @@ public class GradingService {
             return "";
         }
         return ans.replaceAll("[\\s,，、;；]", "").replace("（", "").replace("）", "").toUpperCase();
+    }
+
+    /**
+     * 选项随机重排后的标准答案映射。optionOrder[i] = 新位置 i 显示的原选项下标：
+     * 学生涂新字母 p 等价于选择了原选项 order[p]，故原字母 L（下标 L-'A'）对应的新涂点是
+     * 'A' + order 中原下标出现的位置。多选逐字母映射；判断题（√/× 或空映射）原样返回。
+     */
+    private static String remapStandardAnswer(String standard, String optionOrder) {
+        if (standard == null || standard.isBlank() || optionOrder == null || optionOrder.isBlank()) {
+            return standard;
+        }
+        int[] order = parseOrder(optionOrder);
+        if (order == null) {
+            return standard;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (char c : standard.toCharArray()) {
+            int idx = c - 'A';
+            if (idx >= 0 && idx < order.length) {
+                int newPos = indexOf(order, idx);
+                sb.append(newPos >= 0 ? (char) ('A' + newPos) : c);
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 解析 "[2,0,3,1]" 形式的映射数组；非法返回 null */
+    private static int[] parseOrder(String s) {
+        try {
+            String t = s.trim();
+            if (t.startsWith("[")) {
+                t = t.substring(1, t.length() - 1);
+            }
+            if (t.isBlank()) {
+                return null;
+            }
+            String[] parts = t.split(",");
+            int[] order = new int[parts.length];
+            for (int i = 0; i < parts.length; i++) {
+                order[i] = Integer.parseInt(parts[i].trim());
+            }
+            return order;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static int indexOf(int[] arr, int v) {
+        for (int i = 0; i < arr.length; i++) {
+            if (arr[i] == v) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private String layoutStudentNo(Map<?, ?> layout, BufferedImage norm) {
@@ -1140,6 +1203,47 @@ public class GradingService {
         }
     }
 
+    /**
+     * 与考生库核对，以考生库为准：
+     *  1. 考号（涂卡/手写 OCR）能在库中精确匹配 → 姓名、班级一律采用库内信息（手写识别不准也无妨）；
+     *  2. 考号没对上但识别出的姓名在库中唯一 → 用库内记录回填考号与班级（手写考号识别错位的兜底）；
+     *  3. 都对不上 → 保持识别结果，随后自动登记为新考生。
+     * 失败不影响阅卷主流程。
+     */
+    private void matchStudentLibrary(GradeSheet gs) {
+        if (gs == null) {
+            return;
+        }
+        try {
+            String no = gs.getStudentNo() == null ? "" : gs.getStudentNo().trim();
+            if (no.matches("\\d{6,8}")) {
+                Student s = studentService.matchByNo(no);
+                if (s != null) {
+                    if (!no.equals(s.getStudentNo())) {
+                        log.info("考号 {} 以考生库为准更正为 {}", no, s.getStudentNo());
+                    }
+                    gs.setStudentNo(s.getStudentNo());
+                    gs.setStudentName(s.getName());
+                    if (s.getClassName() != null) {
+                        gs.setClassName(s.getClassName());
+                    }
+                    return;
+                }
+            }
+            Student byName = studentService.matchByName(gs.getStudentName());
+            if (byName != null) {
+                log.info("考号识别未命中考生库，按姓名「{}」匹配到考号 {}", gs.getStudentName(), byName.getStudentNo());
+                gs.setStudentNo(byName.getStudentNo());
+                gs.setStudentName(byName.getName());
+                if (byName.getClassName() != null) {
+                    gs.setClassName(byName.getClassName());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("考生库核对失败（不影响阅卷）: {}", e.getMessage());
+        }
+    }
+
     /** 修改阅卷记录的学号/班级/姓名：三者允许人工更正，更正后三者一致的记录在阅卷统计时会被合并为一条成绩 */
     @Transactional(rollbackFor = Exception.class)
     public GradeSheet updateInfo(Long id, String studentNo, String className, String studentName) {
@@ -1159,6 +1263,19 @@ public class GradingService {
         if (studentName != null) {
             String v = studentName.trim();
             gs.setStudentName("待确认".equals(v) || v.isEmpty() ? "待确认" : v);
+        }
+        // 人工更正考号后，以考生库为准带出登记的姓名/班级（对应字段未人工填写或仍是占位时才回填）
+        String no = gs.getStudentNo();
+        if (no != null && no.matches("\\d{6,8}")) {
+            Student s = studentService.matchByNo(no);
+            if (s != null) {
+                if (studentName == null || "待确认".equals(gs.getStudentName())) {
+                    gs.setStudentName(s.getName());
+                }
+                if (className == null || "待确认".equals(gs.getClassName())) {
+                    gs.setClassName(s.getClassName());
+                }
+            }
         }
         gradeSheetMapper.updateById(gs);
         return gs;

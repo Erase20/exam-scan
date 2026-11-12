@@ -162,6 +162,11 @@
           <el-table-column label="阅卷时间" width="160" class-name="col-optional">
             <template #default="{ row }">{{ String(row.createTime || '').replace('T', ' ').slice(0, 19) }}</template>
           </el-table-column>
+          <el-table-column label="操作" width="90" fixed="right" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="openGradeDetail(row)">答卷详情</el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </div>
 
@@ -194,10 +199,69 @@
               <span :class="{ 'score-blue': row.gotScore > 0 }">{{ fmt(row.gotScore) }} / {{ fmt(row.fullScore) }}</span>
             </template>
           </el-table-column>
+          <el-table-column label="操作" width="100" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" size="small" @click="openGradeDetail({ id: row.gradeId })">看答卷</el-button>
+            </template>
+          </el-table-column>
         </el-table>
         <el-empty v-else-if="wrongSearched" description="该题没有失分考生（或该批记录无逐题明细）" :image-size="60" />
       </div>
     </template>
+
+    <!-- 考生答卷详情：逐题明细，错题高亮，点题号看该题作答截图 -->
+    <el-dialog v-model="gdVisible" width="900px" top="4vh"
+               :title="gdGrade ? `答卷详情：${gdGrade.studentName || '待确认'}（${gdGrade.studentNo || '考号未识别'}）` : '答卷详情'">
+      <div v-loading="gdLoading">
+        <div v-if="gdGrade" class="gd-head">
+          <span>客观题 <b>{{ fmt(gdGrade.objectiveScore) }}</b></span>
+          <span>主观题 <b>{{ fmt(gdGrade.subjectiveScore) }}</b></span>
+          <span>总分 <b class="score-blue">{{ fmt(gdGrade.totalScore) }}</b> / {{ fmt(gdGrade.fullScore) }}</span>
+          <el-switch v-model="gdShowImg" active-text="显示作答截图" style="margin-left:auto" />
+        </div>
+        <el-table v-if="gdDetails.length" :data="gdDetails" size="small" border max-height="360"
+                  highlight-current-row :row-class-name="gdRowClass">
+          <el-table-column label="题号" width="80" align="center">
+            <template #default="{ row }">
+              <el-link type="primary" :underline="false" @click="gdPick(row)">{{ row.qNo }}</el-link>
+            </template>
+          </el-table-column>
+          <el-table-column label="大题" min-width="110" class-name="col-optional">
+            <template #default="{ row }">{{ row.sectionName }}</template>
+          </el-table-column>
+          <el-table-column label="题型" width="90" align="center">
+            <template #default="{ row }">{{ Q_TYPE_LABELS[row.qType] || row.qType }}</template>
+          </el-table-column>
+          <el-table-column label="得分" width="100" align="center">
+            <template #default="{ row }"><b>{{ fmt(row.gotScore) }}</b> / {{ fmt(row.score) }}</template>
+          </el-table-column>
+          <el-table-column label="判定" width="90" align="center">
+            <template #default="{ row }">
+              <el-tag size="small" :type="verdictTag(row.verdict)">{{ verdictLabel(row.verdict) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="学生作答" min-width="100" align="center">
+            <template #default="{ row }">{{ row.studentAnswer || '—' }}</template>
+          </el-table-column>
+          <el-table-column label="标准答案" min-width="100" align="center">
+            <template #default="{ row }">{{ row.standardAnswer || '—' }}</template>
+          </el-table-column>
+        </el-table>
+        <el-empty v-else-if="!gdLoading" description="无逐题明细（旧数据或快速截图模式）" :image-size="60" />
+
+        <div v-if="gdPicked && gdShowImg" class="gd-cell">
+          <div class="gd-cell-head">
+            <span>第 {{ gdPicked.qNo }} 题作答截图</span>
+            <el-button v-if="!isObjective(gdPicked.qType)" size="small" text type="primary"
+                       @click="gdOcr" :loading="gdOcrLoading">OCR 识别文字</el-button>
+          </div>
+          <img class="gd-cell-img" :src="`/api/grading/${gdGradeId}/cell/${gdPicked.paperItemId}`" alt="作答截图">
+          <div v-if="gdOcrText !== null && gdOcrFor === gdPicked.paperItemId" class="gd-ocr-text">
+            识别文本：{{ gdOcrText || '（未识别出文字，请看截图人工判分）' }}
+          </div>
+        </div>
+      </div>
+    </el-dialog>
 
     <div v-else-if="!loading" class="page-card">
       <el-empty description="该条件下暂无阅卷成绩，请先在「扫描阅卷」完成阅卷">
@@ -211,6 +275,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import http from '../api'
+import { Q_TYPE_LABELS } from '../api'
 import BarChart from '../components/BarChart.vue'
 import LineChart from '../components/LineChart.vue'
 
@@ -348,6 +413,69 @@ async function loadWrong() {
   }
 }
 
+// ---------------- 答卷详情弹窗 ----------------
+
+const gdVisible = ref(false)
+const gdLoading = ref(false)
+const gdGrade = ref(null)
+const gdGradeId = ref(null)
+const gdDetails = ref([])
+const gdPicked = ref(null)
+const gdShowImg = ref(true)
+const gdOcrText = ref(null)
+const gdOcrFor = ref(null)
+const gdOcrLoading = ref(false)
+
+async function openGradeDetail(row) {
+  gdVisible.value = true
+  gdLoading.value = true
+  gdGrade.value = null
+  gdDetails.value = []
+  gdPicked.value = null
+  gdOcrText.value = null
+  gdGradeId.value = row.id
+  try {
+    const d = await http.get(`/grading/${row.id}`)
+    gdGrade.value = d.grade
+    gdDetails.value = d.details || []
+    // 默认展开第一道错题的截图，方便直接看错因
+    const wrong = gdDetails.value.find(x => Number(x.gotScore) < Number(x.score))
+    if (wrong) gdPicked.value = wrong
+  } catch {
+    /* 拦截器提示 */
+  } finally {
+    gdLoading.value = false
+  }
+}
+
+function gdPick(row) {
+  gdPicked.value = row
+  gdOcrText.value = null
+}
+
+function gdRowClass({ row }) {
+  return Number(row.gotScore) < Number(row.score) ? 'gd-wrong-row' : ''
+}
+
+const verdictLabel = v => ({ CORRECT: '正确', WRONG: '错误', BLANK: '未作答', MANUAL: '人工判分' }[v] || v)
+const verdictTag = v => ({ CORRECT: 'success', WRONG: 'danger', BLANK: 'warning', MANUAL: 'info' }[v] || 'info')
+const isObjective = t => t === 'CHOICE' || t === 'JUDGE'
+
+async function gdOcr() {
+  if (!gdPicked.value || !gdGradeId.value) return
+  gdOcrLoading.value = true
+  try {
+    const r = await http.get(`/grading/${gdGradeId.value}/cell/${gdPicked.value.paperItemId}/ocr`)
+    gdOcrText.value = r?.text || ''
+    gdOcrFor.value = gdPicked.value.paperItemId
+  } catch {
+    gdOcrText.value = ''
+    gdOcrFor.value = gdPicked.value.paperItemId
+  } finally {
+    gdOcrLoading.value = false
+  }
+}
+
 function goGrading() {
   router.push({ path: '/grading', query: paperId.value ? { paperId: paperId.value } : {} })
 }
@@ -420,6 +548,15 @@ onMounted(async () => {
 .rate-cell { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #606266; }
 .rate-track { flex: 1; min-width: 60px; height: 7px; background: #f0f2f5; border-radius: 4px; overflow: hidden; }
 .rate-fill { height: 100%; background: linear-gradient(90deg, #67C23A, #409EFF); border-radius: 4px; }
+
+/* ---------- 答卷详情弹窗 ---------- */
+.gd-head { display: flex; gap: 24px; align-items: center; margin-bottom: 10px; font-size: 13px; color: #606266; }
+.gd-head b { color: #303133; }
+:deep(.gd-wrong-row) { --el-table-tr-bg-color: #fef0f0; }
+.gd-cell { margin-top: 14px; border-top: 1px dashed #ebeef5; padding-top: 10px; }
+.gd-cell-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
+.gd-cell-img { max-width: 100%; max-height: 320px; border: 1px solid #eee; border-radius: 4px; display: block; margin: 0 auto; }
+.gd-ocr-text { margin-top: 8px; font-size: 13px; color: #67C23A; background: #f6ffed; padding: 6px 10px; border-radius: 4px; }
 
 @media (max-width: 768px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }

@@ -190,8 +190,8 @@ public class PaperExportService {
                     // 题库中标记为图片的区域，随题干一起插入试卷
                     appendImages(doc, q);
 
-                    // 选项
-                    List<Map<String, String>> opts = parseOptions(q.getOptions());
+                    // 选项（随机排序时按映射重排，字母重新编为 A/B/C/D）
+                    List<Map<String, String>> opts = orderedOptions(q, it);
                     if (!opts.isEmpty()) {
                         XWPFParagraph op = doc.createParagraph();
                         op.setIndentationLeft(240);
@@ -215,7 +215,7 @@ public class PaperExportService {
                             if (INLINE_FILL_TYPES.contains(q.getQType())) {
                                 ansText = leftover.isEmpty() ? null : String.join("；", leftover);
                             } else {
-                                ansText = safe(q.getAnswer());
+                                ansText = remappedAnswer(q, it);
                             }
                         }
                         String analysis = safe(q.getAnalysis());
@@ -265,7 +265,7 @@ public class PaperExportService {
                         r.setFontSize(10.5);
                         r.setFontFamily("宋体");
                         r.setBold(true);
-                        r.setText(no + "．" + safe(q.getAnswer()));
+                        r.setText(no + "．" + remappedAnswer(q, it));
                         if (q.getAnalysis() != null && !q.getAnalysis().isBlank()) {
                             r.setBold(false);
                             r.setText("　【解析】" + q.getAnalysis());
@@ -364,6 +364,72 @@ public class PaperExportService {
         } catch (Exception e) {
             return List.of();
         }
+    }
+
+    /** 选项按重排映射输出：新位置 i 取原选项 order[i]，字母重编为 A/B/C/D；未重排时原样返回 */
+    private List<Map<String, String>> orderedOptions(Question q, PaperItem it) {
+        List<Map<String, String>> opts = parseOptions(q.getOptions());
+        int[] order = parseOrder(it == null ? null : it.getOptionOrder());
+        if (order == null || opts.isEmpty()) {
+            return opts;
+        }
+        List<Map<String, String>> out = new ArrayList<>();
+        for (int i = 0; i < order.length && i < opts.size(); i++) {
+            Map<String, String> m = new LinkedHashMap<>(opts.get(order[i]));
+            m.put("key", String.valueOf((char) ('A' + i)));
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** 选择题答案字母按选项重排映射转换（其他题型/未重排原样返回） */
+    private static String remappedAnswer(Question q, PaperItem it) {
+        String ans = safe(q.getAnswer());
+        int[] order = parseOrder(it == null ? null : it.getOptionOrder());
+        if (order == null || ans.isBlank() || !"CHOICE".equals(q.getQType())) {
+            return ans;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (char c : ans.toUpperCase(Locale.ROOT).toCharArray()) {
+            int idx = c - 'A';
+            if (idx >= 0 && idx < order.length) {
+                int p = indexOf(order, idx);
+                sb.append(p >= 0 ? (char) ('A' + p) : c);
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** 解析 "[2,0,3,1]" 形式的映射数组；非法返回 null */
+    private static int[] parseOrder(String s) {
+        try {
+            String t = s == null ? "" : s.trim();
+            if (t.startsWith("[")) {
+                t = t.substring(1, t.length() - 1);
+            }
+            if (t.isBlank()) {
+                return null;
+            }
+            String[] parts = t.split(",");
+            int[] order = new int[parts.length];
+            for (int i = 0; i < parts.length; i++) {
+                order[i] = Integer.parseInt(parts[i].trim());
+            }
+            return order;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static int indexOf(int[] arr, int v) {
+        for (int i = 0; i < arr.length; i++) {
+            if (arr[i] == v) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private static String safe(String s) {

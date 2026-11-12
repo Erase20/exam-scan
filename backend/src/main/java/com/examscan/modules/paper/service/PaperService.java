@@ -502,6 +502,24 @@ public class PaperService {
         for (PaperItem it : items) {
             sections.computeIfAbsent(it.getSectionNo(), k -> new ArrayList<>()).add(it);
         }
+        // 选择题的选项内容也随机重排（判断题 √/× 涂点语义固定，不参与）
+        Set<Long> choiceIds = items.stream()
+                .filter(i -> "CHOICE".equals(i.getQType()))
+                .map(PaperItem::getQuestionId)
+                .collect(Collectors.toSet());
+        Map<Long, Integer> optCount = new HashMap<>();
+        if (!choiceIds.isEmpty()) {
+            for (Question q : questionMapper.selectBatchIds(choiceIds)) {
+                try {
+                    List<?> opts = new ObjectMapper().readValue(
+                            q.getOptions() == null ? "[]" : q.getOptions(), List.class);
+                    optCount.put(q.getId(), opts.size());
+                } catch (Exception e) {
+                    optCount.put(q.getId(), 0);
+                }
+            }
+        }
+        int shuffledOptions = 0;
         int changedSections = 0;
         for (List<PaperItem> group : sections.values()) {
             if (group.size() < 2) {
@@ -514,8 +532,21 @@ public class PaperService {
             }
             for (int i = 0; i < shuffled.size(); i++) {
                 PaperItem it = shuffled.get(i);
+                boolean dirty = false;
                 if (it.getSortNo() == null || it.getSortNo() != i + 1) {
                     it.setSortNo(i + 1);
+                    dirty = true;
+                }
+                if ("CHOICE".equals(it.getQType())) {
+                    int n = optCount.getOrDefault(it.getQuestionId(), 0);
+                    String order = randomOptionOrder(n);
+                    if (order != null) {
+                        it.setOptionOrder(order);
+                        dirty = true;
+                        shuffledOptions++;
+                    }
+                }
+                if (dirty) {
                     itemMapper.updateById(it);
                 }
             }
@@ -532,7 +563,47 @@ public class PaperService {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("sections", changedSections);
         out.put("sheetsRegenerated", sheets);
+        out.put("optionsShuffled", shuffledOptions);
         return out;
+    }
+
+    /**
+     * 生成选项重排映射：新位置 i 显示原选项 order[i]。
+     * 返回 null 表示不需要重排（选项不足 2 个或恰好打回原序）。
+     */
+    private static String randomOptionOrder(int n) {
+        if (n < 2) {
+            return null;
+        }
+        List<Integer> order = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            order.add(i);
+        }
+        boolean identity = true;
+        for (int attempt = 0; attempt < 5; attempt++) {
+            Collections.shuffle(order);
+            identity = true;
+            for (int i = 0; i < n; i++) {
+                if (order.get(i) != i) {
+                    identity = false;
+                    break;
+                }
+            }
+            if (!identity) {
+                break;
+            }
+        }
+        if (identity) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < n; i++) {
+            sb.append(order.get(i));
+            if (i < n - 1) {
+                sb.append(',');
+            }
+        }
+        return sb.append(']').toString();
     }
 
     /** 向试卷追加一道题（放到指定大题末尾） */

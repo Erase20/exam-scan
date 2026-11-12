@@ -29,12 +29,36 @@
     <template v-else>
       <div class="preview-bar no-print">
         <el-button @click="preview = false">← 返回编辑</el-button>
-        <span style="font-weight:600">试卷预览</span>
+        <span style="font-weight:600">{{ singleMode ? '单题预览' : '试卷预览' }}</span>
         <el-switch v-model="showAnswer" active-text="显示答案" inactive-text="隐藏答案" />
+        <el-switch v-model="singleMode" active-text="单题模式" inactive-text="整卷模式" />
         <span style="font-size:12px;color:#909399">显示答案时：填空题答案逐空填入空位，选择/判断填入括号，其余题型答案标注在题后</span>
         <el-button type="primary" style="margin-left:auto" @click="printPaper">打印 / 另存 PDF</el-button>
       </div>
-      <div class="paper-sheet">
+
+      <!-- 单题模式：上下翻页逐题查看，答案跟随上方开关显隐 -->
+      <div v-if="singleMode && curQ" class="paper-sheet single-sheet">
+        <div class="single-head no-print">
+          <span><b>{{ cnNum(curQ.secIdx) }}、{{ curQ.secName }}</b>　第 {{ curQ.no }} 题（{{ typeLabel(curQ.qType) }}，{{ fmtNum(curQ.score) }} 分）</span>
+          <span style="color:#909399">{{ singleIdx + 1 }} / {{ previewList.length }}</span>
+        </div>
+        <p class="p-stem"><b>{{ curQ.no }}．</b><span v-html="curQ.stemHtml"></span></p>
+        <div v-if="curQ.images.length" class="p-imgs">
+          <img v-for="(u, i) in curQ.images" :key="i" :src="u" alt="">
+        </div>
+        <p v-if="curQ.opts.length" class="p-opts">
+          <span v-for="o in curQ.opts" :key="o.key">{{ o.key }}．{{ o.content }}　　</span>
+        </p>
+        <p v-if="curQ.ansHtml" class="p-extra" v-html="curQ.ansHtml"></p>
+        <div v-else-if="showAnswer" class="p-extra" style="color:#c0c4cc">本题无答案信息</div>
+        <div class="single-nav no-print">
+          <el-button :disabled="singleIdx === 0" @click="singleIdx--">← 上一题</el-button>
+          <el-button :disabled="singleIdx >= previewList.length - 1" @click="singleIdx++">下一题 →</el-button>
+        </div>
+      </div>
+
+      <!-- 整卷模式 -->
+      <div v-else class="paper-sheet">
         <h1 class="p-title">{{ paper.title }}</h1>
         <p class="p-sub">{{ paper.subject || '' }}（满分：{{ fmtNum(paper.totalScore) }}分　考试时间：{{ paper.duration }}分钟）</p>
         <p class="p-info">班级：____________　姓名：____________　学号：____________　得分：________</p>
@@ -68,6 +92,7 @@
           <span style="font-size:12px;color:#909399">分</span>
           <el-button size="small" text type="primary" style="margin-left:8px"
                      @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" text type="primary" @click="previewOne(row)">预览</el-button>
           <el-button size="small" text type="warning" @click="openReplacePicker(row)">替换</el-button>
           <el-button size="small" text title="上移"
                      :disabled="idx === 0"
@@ -91,7 +116,7 @@
         </div>
         <details v-if="row.question?.answer" class="q-ans">
           <summary>答案与解析</summary>
-          <div>答：{{ row.question.answer }}</div>
+          <div>答：{{ dispAns(row) }}</div>
           <div v-if="row.question.analysis">解析：{{ row.question.analysis }}</div>
         </details>
       </div>
@@ -106,7 +131,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http, { Q_TYPE_LABELS } from '../api'
@@ -134,7 +159,10 @@ const canFill = t => t === 'FILL' || t === 'CHOICE' || t === 'JUDGE'
 const previewSections = computed(() => Object.entries(sections.value).map(([secNo, rows]) => {
   const questions = rows.map(row => {
     const q = row.question || {}
-    const answers = showAnswer.value ? splitAnswers(q.answer) : []
+    // 选择题答案按选项重排映射转换，与卷面选项顺序一致
+    const answers = showAnswer.value
+      ? splitAnswers(q.answer).map(a => q.qType === 'CHOICE' ? remapAns(row, a) : a)
+      : []
     let stem = escHtml(q.stem || '').trim()
     let leftover = []
     if (answers.length && canFill(q.qType)) {
@@ -159,13 +187,39 @@ const previewSections = computed(() => Object.entries(sections.value).map(([secN
       ansHtml: parts.join(''),
       images: imgList(q.imagePath),
       opts: opts(row),
+      qType: q.qType,
+      score: row.item.score,
     }
   })
   const total = rows.reduce((s, r) => s + Number(r.item.score || 0), 0)
   return { name: rows[0].item.sectionName, questions, total: fmtNum(total) }
 }))
 
-function startPreview() { showAnswer.value = false; preview.value = true }
+// ---------------- 单题预览 ----------------
+const singleMode = ref(false)
+const singleIdx = ref(0)
+const previewList = computed(() => previewSections.value.flatMap((sec, si) =>
+  sec.questions.map((q, qi) => ({ ...q, secName: sec.name, secIdx: si, no: qi + 1 }))))
+const curQ = computed(() => previewList.value[singleIdx.value] || null)
+
+function startPreview() { showAnswer.value = false; singleMode.value = false; preview.value = true }
+
+/** 从编辑区某题直接进入单题预览 */
+function previewOne(row) {
+  const idx = previewList.value.findIndex(q => q.key === row.item.id)
+  singleMode.value = true
+  preview.value = true
+  if (idx >= 0) singleIdx.value = idx
+}
+
+function onPreviewKey(e) {
+  if (!preview.value || !singleMode.value) return
+  if (e.key === 'ArrowLeft' && singleIdx.value > 0) singleIdx.value--
+  if (e.key === 'ArrowRight' && singleIdx.value < previewList.value.length - 1) singleIdx.value++
+}
+onMounted(() => window.addEventListener('keydown', onPreviewKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onPreviewKey))
+
 function printPaper() { window.print() }
 const existingIds = computed(() => items.value.map(r => r.item.questionId))
 const sections = computed(() => {
@@ -178,8 +232,34 @@ const sections = computed(() => {
 const typeLabel = t => Q_TYPE_LABELS[t] || t
 const imgList = p => (p || '').split(',').map(s => s.trim()).filter(Boolean)
 const opts = row => {
-  try { return JSON.parse(row.question?.options || '[]') } catch (e) { return [] }
+  let list = []
+  try { list = JSON.parse(row.question?.options || '[]') || [] } catch (e) { list = [] }
+  // 选项随机排序后按映射重排显示（新位置 i 显示原选项 order[i]，字母重编 A/B/C/D）
+  const order = row.item?.optionOrder
+  if (order) {
+    try {
+      const arr = JSON.parse(order)
+      list = arr.map((oi, i) => ({ ...(list[oi] || {}), key: String.fromCharCode(65 + i) }))
+        .filter(o => o.content !== undefined)
+    } catch (e) { /* 保持原序 */ }
+  }
+  return list
 }
+
+/** 选择题答案字母按选项重排映射转换（与卷面选项一致） */
+const remapAns = (row, ans) => {
+  const order = row.item?.optionOrder
+  if (!order || !ans || !/^[A-Ha-h]+$/.test(ans)) return ans
+  try {
+    const arr = JSON.parse(order)
+    return ans.toUpperCase().split('').map(c => {
+      const idx = c.charCodeAt(0) - 65
+      const p = arr.indexOf(idx)
+      return p >= 0 ? String.fromCharCode(65 + p) : c
+    }).join('')
+  } catch (e) { return ans }
+}
+const dispAns = row => row.question?.qType === 'CHOICE' ? remapAns(row, row.question.answer) : row.question?.answer
 
 async function load() {
   const d = await http.get(`/paper/${route.params.id}`)
@@ -267,9 +347,8 @@ async function shuffleItems() {
   try {
     const r = await http.post(`/paper/${paper.value.id}/shuffle`)
     const n = r?.sheetsRegenerated || 0
-    ElMessage.success(n > 0
-      ? `已随机打乱各大题内的小题顺序，${n} 张答题卡已同步重新排版`
-      : '已随机打乱各大题内的小题顺序')
+    const on = r?.optionsShuffled || 0
+    ElMessage.success(`已随机打乱各大题内的小题顺序${on ? `，${on} 道选择题的选项也已重排` : ''}${n > 0 ? `，${n} 张答题卡已同步重新排版` : ''}`)
     await load()
   } catch (e) { /* 拦截器提示 */ } finally { shuffling.value = false }
 }
@@ -307,6 +386,9 @@ onMounted(load)
 .q-ans { margin-top: 6px; font-size: 13px; color: #67C23A; }
 
 /* ---------- 试卷预览 ---------- */
+.single-sheet { max-width: 860px; margin: 0 auto; min-height: 50vh; }
+.single-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 14px; }
+.single-nav { display: flex; justify-content: center; gap: 16px; margin-top: 36px; }
 .preview-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
 .paper-sheet {
   max-width: 820px; margin: 0 auto; background: #fff; color: #111;
