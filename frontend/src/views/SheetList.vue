@@ -1,8 +1,15 @@
 <template>
   <div>
     <h2 class="page-title">答题卡管理</h2>
+    <div class="page-card batch-bar">
+      <el-button type="danger" plain :disabled="!selected.length" :loading="batchDeleting" @click="batchDel">
+        批量删除{{ selected.length ? `（已选 ${selected.length} 张）` : '' }}
+      </el-button>
+      <span v-if="!selected.length" class="batch-hint">在表格中勾选答题卡后可批量删除</span>
+    </div>
     <div class="page-card">
-      <el-table :data="sheets" size="small">
+      <el-table :data="sheets" size="small" @selection-change="s => (selected = s)">
+        <el-table-column type="selection" width="42" />
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="title" label="标题" />
         <el-table-column prop="paperId" label="试卷ID" width="90" />
@@ -99,6 +106,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import http, { Q_TYPE_LABELS } from '../api'
 
 const sheets = ref([]); const dlg = ref(false); const previewUrl = ref(''); const curTitle = ref('')
+const selected = ref([]); const batchDeleting = ref(false)
 
 const answerDlg = ref(false); const answerLoading = ref(false); const answerSaving = ref(false)
 const answerSheet = ref(null); const answerItems = ref([])
@@ -294,13 +302,37 @@ async function saveAnswers() {
 
 async function del(id) {
   await http.delete(`/answer-sheet/${id}`)
+  ElMessage.success('已删除')
   load()
+}
+
+/** 批量删除勾选的答题卡（逻辑删除，图片文件保留） */
+async function batchDel() {
+  const n = selected.value.length
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${n} 张答题卡吗？删除后不可在列表中恢复。`,
+      '批量删除', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  } catch { return }
+  batchDeleting.value = true
+  try {
+    const cnt = await http.post('/answer-sheet/batch-delete', selected.value.map(s => s.id))
+    if (!cnt) {
+      ElMessage.warning('未删除任何答题卡（所选记录可能已不存在）')
+    } else {
+      ElMessage.success(`已删除 ${cnt} 张答题卡`)
+    }
+    selected.value = []
+    await load()
+  } catch (e) { /* 拦截器提示 */ } finally { batchDeleting.value = false }
 }
 
 onMounted(load)
 </script>
 
 <style scoped>
+.batch-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.batch-hint { font-size: 12px; color: #909399; }
 .ans-toolbar { display: flex; align-items: center; gap: 10px; margin: 10px 0; }
 .ans-stat { margin-left: auto; font-size: 12px; color: #909399; }
 .batch-box { margin-bottom: 10px; }

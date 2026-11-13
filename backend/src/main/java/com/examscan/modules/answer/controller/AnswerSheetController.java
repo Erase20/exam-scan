@@ -16,6 +16,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -120,5 +121,11 @@ public class AnswerSheetController {
     public R<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return R.ok();
+    }
+
+    /** 批量删除答题卡（逻辑删除） */
+    @PostMapping("/batch-delete")
+    public R<Integer> batchDelete(@RequestBody List<Long> ids) {
+        return R.ok(service.batchDelete(ids));
     }
 }

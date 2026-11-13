@@ -524,6 +524,23 @@ public class AnswerSheetService {
         sheetMapper.deleteById(id);
     }
 
+    /**
+     * 批量删除答题卡（逻辑删除，可从备份恢复），返回实际删除条数。
+     * 与单个删除一致：仅删记录，答题卡图片文件保留。
+     */
+    public int batchDelete(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BizException("请先勾选要删除的答题卡");
+        }
+        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            throw new BizException("请先勾选要删除的答题卡");
+        }
+        int n = sheetMapper.deleteByIds(distinct);
+        log.info("批量删除答题卡: 请求 {} 张，实际删除 {} 张，ids={}", distinct.size(), n, distinct);
+        return n;
+    }
+
     /** 答题卡答案清单：按卷内顺序返回题目与题库当前答案，供快速设置 */
     public Map<String, Object> answerList(Long sheetId) {
         AnswerSheet sheet = get(sheetId);
