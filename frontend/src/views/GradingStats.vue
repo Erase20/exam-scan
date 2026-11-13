@@ -209,6 +209,12 @@
       </div>
     </template>
 
+    <div v-else-if="!loading" class="page-card">
+      <el-empty description="该条件下暂无阅卷成绩，请先在「扫描阅卷」完成阅卷">
+        <el-button type="primary" @click="goGrading">去阅卷</el-button>
+      </el-empty>
+    </div>
+
     <!-- 考生答卷详情：逐题明细，错题高亮，点题号看该题作答截图 -->
     <el-dialog v-model="gdVisible" width="900px" top="4vh"
                :title="gdGrade ? `答卷详情：${gdGrade.studentName || '待确认'}（${gdGrade.studentNo || '考号未识别'}）` : '答卷详情'">
@@ -262,12 +268,6 @@
         </div>
       </div>
     </el-dialog>
-
-    <div v-else-if="!loading" class="page-card">
-      <el-empty description="该条件下暂无阅卷成绩，请先在「扫描阅卷」完成阅卷">
-        <el-button type="primary" @click="goGrading">去阅卷</el-button>
-      </el-empty>
-    </div>
   </div>
 </template>
 
