@@ -109,6 +109,18 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 .logo.mini { font-size: 0; }
 .drawer-close { margin-left: auto; cursor: pointer; color: #909399; padding-right: 4px; }
 
+/* 打印：只输出主内容区（试卷预览等），隐藏侧栏/顶栏，解除高度限制让内容自然分页 */
+@media print {
+  .app-aside, .m-topbar, .aside-fold { display: none !important; }
+  .app-shell { height: auto !important; }
+  .app-main {
+    padding: 0 !important;
+    background: #fff !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+}
+
 /* 手机端布局 */
 .app-shell.is-mobile { flex-direction: column; }  /* el-container 误判为横向，顶栏被挤到左侧 */
 .m-topbar {
