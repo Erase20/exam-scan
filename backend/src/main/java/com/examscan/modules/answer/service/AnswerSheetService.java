@@ -144,21 +144,22 @@ public class AnswerSheetService {
         ));
 
         // 信息区：姓名 / 班级 / 手写考号格 + 4 位考号涂卡区。
-        // 涂卡区放在信息区右侧空白（姓名/班级行下方），4 列（4 位）× 10 行（0-9），
-        // 紧凑排布不挤占正文；识别时以涂卡区考号为准核对考生库，手写格作为兜底。
+        // 涂卡区放在信息区右侧（姓名/班级行下方），4 列（4 位）× 10 行（0-9），
+        // 涂点足够大（半径 17 ≈ 3mm，接近标准机读卡）保证涂填与识别准确率；
+        // 识别时以涂卡区考号为准核对考生库，手写格作为兜底。
         int infoY = INFO_Y;
         Map<String, Object> info = new LinkedHashMap<>();
         info.put("nameBox", box(MARGIN + 40, infoY, 700, 80));
         info.put("classBox", box(MARGIN + 800, infoY, 500, 80));
         info.put("idDigits", 4);
         info.put("idHandBox", box(MARGIN + 40, infoY + 110, 900, 100));
-        // 涂卡区参数：y 330~636，正文从 660 起，不重叠；涂点半径 12（约 2mm），行距 34
-        info.put("idDigitBox", box(1950, 330, 240, 30));
+        // 涂卡区参数：y 330~743，正文统一从 INFO_Y+470=770 起，不重叠
+        info.put("idDigitBox", box(1950, 330, 300, 30));
         info.put("idBubbleStartX", 1950);
         info.put("idStartY", 330);
-        info.put("idBubbleGapX", 70);
-        info.put("idBubbleGapY", 34);
-        info.put("idBubbleR", 12);
+        info.put("idBubbleGapX", 84);
+        info.put("idBubbleGapY", 44);
+        info.put("idBubbleR", 17);
         layout.put("info", info);
 
         // 按试卷标准大题顺序（sectionNo 升序）统一排布所有大题：
@@ -264,9 +265,9 @@ public class AnswerSheetService {
         List<Map<String, Object>> subjCells = new ArrayList<>();
         List<Map<String, Object>> heads = new ArrayList<>();
 
-        // 排版度量：dense 时全面收紧。
-        // 信息区只占两行（姓名/班级 + 手写考号格），正文起始位置比旧版涂卡区（10 行涂点）大幅上移
-        int startY = INFO_Y + (dense ? 320 : 360);
+        // 排版度量：dense 时收紧行距/列数。
+        // 正文起点统一下移到涂卡区（y 330~743）下方，两档一致，避免与大涂点区重叠
+        int startY = INFO_Y + 470;
         int headBlock = dense ? 74 : 90;       // 大题标题占位高
         int colCount = 5;                      // 选择题每行列数
         int judgeCols = dense ? 6 : colCount;  // 判断题只需 √/× 两个涂点，可放更多列
@@ -282,8 +283,8 @@ public class AnswerSheetService {
         int ansLineGap = dense ? 92 : 150;     // 解答题横线行距（加大书写空间，每条约 12.7mm）
         int gapAns = dense ? 16 : 32;          // 解答题框间距
         int gapSection = dense ? 10 : 20;      // 大题之间间距
-        // 续页正文起点：与首页一致，都在每页信息区下方（修复续页内容与每页复刻的信息区重叠）
-        int pageStartOff = INFO_Y + (dense ? 320 : 360);
+        // 续页正文起点：与首页一致，都在每页信息区+涂卡区下方
+        int pageStartOff = INFO_Y + 470;
         String[] cnNums = {"一", "二", "三", "四", "五", "六", "七", "八", "九", "十"};
 
         int y = startY;
@@ -824,8 +825,8 @@ public class AnswerSheetService {
                             for (int n = 0; n < 10; n++) {
                                 int cy = startY + n * gy + oy;
                                 g.drawRect(bx0 + d * gx - r, cy - r, r * 2, r * 2);
-                                g.setFont(cjkFont(Font.PLAIN, 18));
-                                g.drawString(String.valueOf(n), bx0 + d * gx - 5, cy + 7);
+                                g.setFont(cjkFont(Font.PLAIN, 22));
+                                g.drawString(String.valueOf(n), bx0 + d * gx - 6, cy + 8);
                             }
                         }
                     }
