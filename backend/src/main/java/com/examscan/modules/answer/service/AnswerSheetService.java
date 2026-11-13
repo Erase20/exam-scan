@@ -820,7 +820,8 @@ public class AnswerSheetService {
                         int r = num(info.get("idBubbleR"));
                         Map<?, ?> db = (Map<?, ?>) info.get("idDigitBox");
                         g.setFont(cjkFont(Font.PLAIN, 26));
-                        g.drawString("考号涂卡", num(db.get("x")), num(db.get("y")) - 12 + oy);
+                        // 标题画在最高一行涂点的上方，留出与涂点的间距，避免文字与圆重叠
+                        g.drawString("考号涂卡", num(db.get("x")), num(db.get("y")) - r - 16 + oy);
                         for (int d = 0; d < digits; d++) {
                             for (int n = 0; n < 10; n++) {
                                 int cy = startY + n * gy + oy;
