@@ -279,8 +279,8 @@ public class AnswerSheetService {
         int fillLineGap = dense ? 80 : 110;    // 填空横线行距
         int gapFill = dense ? 14 : 16;         // 填空行间距
         int ansHeaderH = dense ? 62 : 72;      // 解答题题头高
-        int ansLineGap = dense ? 80 : 125;     // 解答题横线行距（舒适档加大行距，行数相应减少）
-        int gapAns = dense ? 14 : 24;          // 解答题框间距
+        int ansLineGap = dense ? 92 : 150;     // 解答题横线行距（加大书写空间，每条约 12.7mm）
+        int gapAns = dense ? 16 : 32;          // 解答题框间距
         int gapSection = dense ? 10 : 20;      // 大题之间间距
         // 续页正文起点：与首页一致，都在每页信息区下方（修复续页内容与每页复刻的信息区重叠）
         int pageStartOff = INFO_Y + (dense ? 320 : 360);
