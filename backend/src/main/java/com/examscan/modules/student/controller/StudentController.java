@@ -78,4 +78,20 @@ public class StudentController {
                     .body(R.fail("导出失败: " + e.getMessage()));
         }
     }
+
+    /** 考生导入模板下载（表头 + 示例行 + 填写说明页） */
+    @GetMapping("/import-template")
+    public ResponseEntity<?> importTemplate() {
+        try {
+            byte[] bytes = service.importTemplate();
+            String fn = URLEncoder.encode("考生导入模板.xlsx", StandardCharsets.UTF_8).replace("+", "%20");
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + fn)
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(bytes);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).contentType(MediaType.APPLICATION_JSON)
+                    .body(R.fail("生成模板失败: " + e.getMessage()));
+        }
+    }
 }

@@ -227,6 +227,58 @@ public class StudentService {
     }
 
     /**
+     * 考生导入模板（Excel）：表头 + 示例行，另附「填写说明」页。
+     * 列顺序与 importExcel 一致：考号、姓名、班级（可选）、年级（可选）。
+     */
+    public byte[] importTemplate() {
+        try (Workbook wb = new XSSFWorkbook();
+             ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            Sheet sheet = wb.createSheet("考生名单");
+            CellStyle bold = wb.createCellStyle();
+            Font f = wb.createFont();
+            f.setBold(true);
+            bold.setFont(f);
+            String[] headers = {"考号", "姓名", "班级", "年级"};
+            Row head = sheet.createRow(0);
+            for (int i = 0; i < headers.length; i++) {
+                Cell c = head.createCell(i);
+                c.setCellValue(headers[i]);
+                c.setCellStyle(bold);
+                sheet.setColumnWidth(i, i == 0 ? 4800 : 5200);
+            }
+            // 示例行：导入前请删除（界面上也提示）
+            CellStyle gray = wb.createCellStyle();
+            gray.setFillForegroundColor(org.apache.poi.ss.usermodel.IndexedColors.GREY_25_PERCENT.getIndex());
+            gray.setFillPattern(org.apache.poi.ss.usermodel.FillPatternType.SOLID_FOREGROUND);
+            Row sample = sheet.createRow(1);
+            String[] sampleData = {"20260001", "张三（示例，导入前请删除本行）", "五（1）班", "六年级"};
+            for (int i = 0; i < sampleData.length; i++) {
+                Cell c = sample.createCell(i);
+                c.setCellValue(sampleData[i]);
+                c.setCellStyle(gray);
+            }
+            // 填写说明页
+            Sheet help = wb.createSheet("填写说明");
+            help.setColumnWidth(0, 11000);
+            String[] tips = {
+                "1. 请在本页之后的「考生名单」页填写，第一行表头（考号/姓名/班级/年级）不要改动或删除；",
+                "2. 考号必填，且须与答题卡上涂写/书写的考号一致；已有考号会被覆盖更新；",
+                "3. 姓名、班级为阅卷核对考生库的依据，建议填写完整；年级选填；",
+                "4. 灰色示例行仅作参考，导入前请整行删除；",
+                "5. 系统按考号匹配：考号已存在的考生只更新姓名/班级/年级，不重复新增。"
+            };
+            for (int i = 0; i < tips.length; i++) {
+                help.createRow(i).createCell(0).setCellValue(tips[i]);
+            }
+            wb.write(out);
+            return out.toByteArray();
+        } catch (Exception e) {
+            log.error("生成考生导入模板失败", e);
+            throw new BizException("生成模板失败: " + e.getMessage());
+        }
+    }
+
+    /**
      * Excel 名单导入。列顺序：考号、姓名、班级（可选）、年级（可选）；首行表头自动跳过。
      */
     @Transactional(rollbackFor = Exception.class)

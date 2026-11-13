@@ -10,6 +10,7 @@
                    :on-change="onFileChange">
           <el-button type="success">导入名单 (Excel)</el-button>
         </el-upload>
+        <el-button plain @click="downloadTemplate">下载导入模板</el-button>
         <el-button type="warning" plain @click="exportGrades" :loading="exporting">导出成绩汇总表</el-button>
         <el-button @click="openEdit(null)">新增考生</el-button>
         <el-button type="danger" plain :disabled="!selected.length" :loading="batchDeleting" @click="batchDel">
@@ -159,6 +160,14 @@ function goStats(e) {
 /** 直接打开该生这场考试的答卷详情（错题号高亮） */
 function goAnswer(e) {
   router.push({ path: '/grading-stats', query: { paperId: e.paperId, gradeId: e.gradeId } })
+}
+
+/** 下载考生导入模板（表头 + 示例行 + 填写说明页） */
+function downloadTemplate() {
+  const a = document.createElement('a')
+  a.href = '/api/student/import-template'
+  a.download = '考生导入模板.xlsx'
+  a.click()
 }
 
 async function onFileChange(file) {
