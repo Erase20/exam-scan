@@ -272,7 +272,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import http from '../api'
 import { Q_TYPE_LABELS } from '../api'
@@ -426,7 +426,7 @@ const gdOcrText = ref(null)
 const gdOcrFor = ref(null)
 const gdOcrLoading = ref(false)
 
-async function openGradeDetail(row) {
+async function openGradeDetail(row, targetQNo) {
   gdVisible.value = true
   gdLoading.value = true
   gdGrade.value = null
@@ -438,14 +438,42 @@ async function openGradeDetail(row) {
     const d = await http.get(`/grading/${row.id}`)
     gdGrade.value = d.grade
     gdDetails.value = d.details || []
-    // 默认展开第一道错题的截图，方便直接看错因
-    const wrong = gdDetails.value.find(x => Number(x.gotScore) < Number(x.score))
-    if (wrong) gdPicked.value = wrong
+    // 指定题号（考生管理错题号跳转）优先定位；否则默认第一道错题
+    let pick = null
+    if (targetQNo) {
+      pick = gdDetails.value.find(x => String(x.qNo) === String(targetQNo))
+    }
+    if (!pick) {
+      pick = gdDetails.value.find(x => Number(x.gotScore) < Number(x.score))
+    }
+    if (pick) {
+      gdPicked.value = pick
+      await scrollToDetailRow(pick)
+    }
   } catch {
     /* 拦截器提示 */
   } finally {
     gdLoading.value = false
   }
+}
+
+/** 弹窗表格滚动并高亮定位到指定题目行（弹窗渲染动画后执行） */
+async function scrollToDetailRow(pick) {
+  await nextTick()
+  setTimeout(() => {
+    try {
+      const wrap = document.querySelector('.el-dialog .el-table__body-wrapper')
+      if (!wrap) return
+      const rows = wrap.querySelectorAll('tr.el-table__row')
+      for (const tr of rows) {
+        const no = tr.querySelector('td')?.innerText?.trim()
+        if (no === String(pick.qNo)) {
+          tr.scrollIntoView({ block: 'center' })
+          break
+        }
+      }
+    } catch { /* 定位失败不影响展示 */ }
+  }, 400)
 }
 
 function gdPick(row) {
@@ -487,10 +515,10 @@ onMounted(async () => {
     const recent = await http.get('/grading/list').catch(() => [])
     paperId.value = recent.find(r => r.paperId)?.paperId || papers.value[0]?.id || null
   }
-  // 从考生管理「错题号」链接跳转过来：带 gradeId 时直接打开该生答卷详情
+  // 从考生管理「错题号」链接跳转过来：带 gradeId 时直接打开该生答卷详情并定位到该题
   if (route.query.gradeId) {
-    openGradeDetail({ id: route.query.gradeId })
-    router.replace({ query: { ...route.query, gradeId: undefined } })
+    openGradeDetail({ id: route.query.gradeId }, route.query.qno)
+    router.replace({ query: { ...route.query, gradeId: undefined, qno: undefined } })
   }
   load()
 })
@@ -557,7 +585,8 @@ onMounted(async () => {
 /* ---------- 答卷详情弹窗 ---------- */
 .gd-head { display: flex; gap: 24px; align-items: center; margin-bottom: 10px; font-size: 13px; color: #606266; }
 .gd-head b { color: #303133; }
-:deep(.gd-wrong-row) { --el-table-tr-bg-color: #fef0f0; }
+:deep(.gd-wrong-row > td.el-table__cell) { background-color: #fef0f0 !important; }
+:deep(.el-table__body tr.gd-wrong-row:hover > td.el-table__cell) { background-color: #fde2e2 !important; }
 .gd-cell { margin-top: 14px; border-top: 1px dashed #ebeef5; padding-top: 10px; }
 .gd-cell-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
 .gd-cell-img { max-width: 100%; max-height: 320px; border: 1px solid #eee; border-radius: 4px; display: block; margin: 0 auto; }

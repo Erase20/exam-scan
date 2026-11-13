@@ -42,8 +42,10 @@
           <template #default="{ row }">
             <template v-if="row.exams?.length">
               <div v-for="e in row.exams" :key="e.gradeId" class="wrong-line">
-                <el-link v-if="e.wrongQnos?.length" type="danger" :underline="false"
-                         @click="goAnswer(e)">{{ e.wrongQnos.join('、') }}</el-link>
+                <template v-if="e.wrongQnos?.length">
+                  <el-link v-for="q in e.wrongQnos" :key="q" type="danger" :underline="false"
+                           class="wrong-q" @click="goAnswer(e, q)">{{ q }}</el-link>
+                </template>
                 <span v-else style="color:#67C23A">全对</span>
               </div>
             </template>
@@ -157,9 +159,9 @@ function goStats(e) {
   router.push({ path: '/grading-stats', query: { paperId: e.paperId } })
 }
 
-/** 直接打开该生这场考试的答卷详情（错题号高亮） */
-function goAnswer(e) {
-  router.push({ path: '/grading-stats', query: { paperId: e.paperId, gradeId: e.gradeId } })
+/** 直接打开该生这场考试的答卷详情，并定位到指定错题（显示作答与截图） */
+function goAnswer(e, qno) {
+  router.push({ path: '/grading-stats', query: { paperId: e.paperId, gradeId: e.gradeId, qno } })
 }
 
 /** 下载考生导入模板（表头 + 示例行 + 填写说明页） */
@@ -202,4 +204,5 @@ onMounted(load)
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
 .exam-tag { cursor: pointer; margin-right: 6px; }
 .wrong-line { line-height: 1.8; }
+.wrong-q { margin-right: 8px; font-weight: 600; }
 </style>
