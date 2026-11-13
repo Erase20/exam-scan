@@ -12,20 +12,45 @@
         </el-upload>
         <el-button type="warning" plain @click="exportGrades" :loading="exporting">导出成绩汇总表</el-button>
         <el-button @click="openEdit(null)">新增考生</el-button>
+        <el-button type="danger" plain :disabled="!selected.length" :loading="batchDeleting" @click="batchDel">
+          批量删除{{ selected.length ? `（已选 ${selected.length} 人）` : '' }}
+        </el-button>
       </div>
 
-      <el-table :data="rows" v-loading="loading" size="small" stripe>
-        <el-table-column prop="studentNo" label="考号" width="140" />
-        <el-table-column prop="name" label="姓名" width="110">
+      <el-table :data="rows" v-loading="loading" size="small" stripe @selection-change="s => (selected = s)">
+        <el-table-column type="selection" width="42" />
+        <el-table-column prop="studentNo" label="考号" width="120" />
+        <el-table-column prop="name" label="姓名" width="100">
           <template #default="{ row }">
             <el-tag v-if="row.name === '待确认'" type="warning" size="small">待确认</el-tag>
             <span v-else>{{ row.name }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="className" label="班级" width="140" />
-        <el-table-column prop="grade" label="年级" width="120" />
+        <el-table-column prop="className" label="班级" width="120" />
+        <el-table-column prop="grade" label="年级" width="100" />
+        <el-table-column label="参加试卷" min-width="170">
+          <template #default="{ row }">
+            <template v-if="row.exams?.length">
+              <el-tag v-for="e in row.exams" :key="e.gradeId" size="small" type="primary"
+                      class="exam-tag" @click="goStats(e)">{{ e.paperTitle }}</el-tag>
+            </template>
+            <span v-else style="color:#c0c4cc">未参加考试</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="错题号" min-width="170">
+          <template #default="{ row }">
+            <template v-if="row.exams?.length">
+              <div v-for="e in row.exams" :key="e.gradeId" class="wrong-line">
+                <el-link v-if="e.wrongQnos?.length" type="danger" :underline="false"
+                         @click="goAnswer(e)">{{ e.wrongQnos.join('、') }}</el-link>
+                <span v-else style="color:#67C23A">全对</span>
+              </div>
+            </template>
+            <span v-else style="color:#c0c4cc">—</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="createTime" label="登记时间" min-width="150" />
-        <el-table-column label="操作" width="130" fixed="right">
+        <el-table-column label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
             <el-button link type="danger" size="small" @click="remove(row)">删除</el-button>
@@ -59,11 +84,14 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api'
 
+const router = useRouter()
 const rows = ref([]); const keyword = ref(''); const loading = ref(false)
 const editVisible = ref(false); const saving = ref(false); const exporting = ref(false)
+const selected = ref([]); const batchDeleting = ref(false)
 const editForm = ref({ id: null, studentNo: '', name: '', className: '', grade: '' })
 
 async function load() {
@@ -102,6 +130,37 @@ async function remove(row) {
   await load()
 }
 
+/** 批量删除勾选的考生（阅卷成绩记录保留，可通过重新导入名单关联） */
+async function batchDel() {
+  const n = selected.value.length
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${n} 名考生吗？其阅卷成绩记录会保留。`,
+      '批量删除', { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  } catch { return }
+  batchDeleting.value = true
+  try {
+    const cnt = await http.post('/student/batch-delete', selected.value.map(s => s.id))
+    if (!cnt) {
+      ElMessage.warning('未删除任何考生（所选记录可能已不存在）')
+    } else {
+      ElMessage.success(`已删除 ${cnt} 名考生`)
+    }
+    selected.value = []
+    await load()
+  } catch (e) { /* 拦截器提示 */ } finally { batchDeleting.value = false }
+}
+
+/** 跳转到该场考试的阅卷统计 */
+function goStats(e) {
+  router.push({ path: '/grading-stats', query: { paperId: e.paperId } })
+}
+
+/** 直接打开该生这场考试的答卷详情（错题号高亮） */
+function goAnswer(e) {
+  router.push({ path: '/grading-stats', query: { paperId: e.paperId, gradeId: e.gradeId } })
+}
+
 async function onFileChange(file) {
   const fd = new FormData()
   fd.append('file', file.raw)
@@ -132,4 +191,6 @@ onMounted(load)
 
 <style scoped>
 .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.exam-tag { cursor: pointer; margin-right: 6px; }
+.wrong-line { line-height: 1.8; }
 </style>

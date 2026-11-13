@@ -25,9 +25,10 @@ public class StudentController {
 
     private final StudentService service;
 
+    /** 考生列表（含参加试卷与错题号，供前端链接跳转） */
     @GetMapping("/list")
-    public R<List<Student>> list(@RequestParam(required = false) String keyword,
-                                 @RequestParam(required = false) String className) {
+    public R<List<Map<String, Object>>> list(@RequestParam(required = false) String keyword,
+                                             @RequestParam(required = false) String className) {
         return R.ok(service.list(keyword, className));
     }
 
@@ -47,6 +48,12 @@ public class StudentController {
     public R<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return R.ok();
+    }
+
+    /** 批量删除考生 */
+    @PostMapping("/batch-delete")
+    public R<Integer> batchDelete(@RequestBody List<Long> ids) {
+        return R.ok(service.batchDelete(ids));
     }
 
     /** Excel 名单导入（列：考号、姓名、班级、年级，首行表头自动跳过） */

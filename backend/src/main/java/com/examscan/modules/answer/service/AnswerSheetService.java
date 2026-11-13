@@ -143,16 +143,23 @@ public class AnswerSheetService {
                 "y", MARGIN + 8
         ));
 
-        // 信息区：姓名 / 班级 / 手写考号格。
-        // 不再生成考号涂卡区（旧版布局里 idBubble* 字段仍兼容渲染与识别），
-        // 考号统一以手写 + OCR 识别为准。
+        // 信息区：姓名 / 班级 / 手写考号格 + 4 位考号涂卡区。
+        // 涂卡区放在信息区右侧空白（姓名/班级行下方），4 列（4 位）× 10 行（0-9），
+        // 紧凑排布不挤占正文；识别时以涂卡区考号为准核对考生库，手写格作为兜底。
         int infoY = INFO_Y;
-        layout.put("info", Map.of(
-                "nameBox", box(MARGIN + 40, infoY, 700, 80),
-                "classBox", box(MARGIN + 800, infoY, 500, 80),
-                "idDigits", 8,
-                "idHandBox", box(MARGIN + 40, infoY + 110, 900, 100)
-        ));
+        Map<String, Object> info = new LinkedHashMap<>();
+        info.put("nameBox", box(MARGIN + 40, infoY, 700, 80));
+        info.put("classBox", box(MARGIN + 800, infoY, 500, 80));
+        info.put("idDigits", 4);
+        info.put("idHandBox", box(MARGIN + 40, infoY + 110, 900, 100));
+        // 涂卡区参数：y 330~636，正文从 660 起，不重叠；涂点半径 12（约 2mm），行距 34
+        info.put("idDigitBox", box(1950, 330, 240, 30));
+        info.put("idBubbleStartX", 1950);
+        info.put("idStartY", 330);
+        info.put("idBubbleGapX", 70);
+        info.put("idBubbleGapY", 34);
+        info.put("idBubbleR", 12);
+        layout.put("info", info);
 
         // 按试卷标准大题顺序（sectionNo 升序）统一排布所有大题：
         // 每道大题内部按其题型渲染——选择/判断题画涂卡格，其余画答题框。
@@ -454,15 +461,14 @@ public class AnswerSheetService {
         return out;
     }
 
-    /** 填空题横线条数：低分 1 行，4 分及以上 2 行 */
+    /** 填空题横线条数：每题固定 1 条（书写空间集中在单条线上方） */
     private static int fillLineCount(BigDecimal score) {
-        double s = score == null ? 2 : score.doubleValue();
-        return s >= 4 ? 2 : 1;
+        return 1;
     }
 
-    /** 填空题单元高度 = 横线行距 + 余量（横线靠格底，上方即书写空间） */
+    /** 填空题单元高度：单条横线 + 加大余量，使相邻题目的横线间距更大 */
     private static int fillCellHeight(BigDecimal score, int lineGap) {
-        return fillLineCount(score) * lineGap + 16;
+        return lineGap + 40;
     }
 
     /** 解答/计算/实验的横线条数：4 行起步，高分题适当加到 5~6 行 */
@@ -804,7 +810,7 @@ public class AnswerSheetService {
                         g.drawString("班级：____________", num(cb.get("x")), num(cb.get("y")) + 60 + oy);
                     }
 
-                    // 考号涂卡区：仅旧版布局才包含该字段，新版不再生成
+                    // 考号涂卡区：每位一列 0-9，共 4 位（紧凑尺寸，识别以涂卡区为准）
                     if (info.get("idBubbleStartX") != null) {
                         int startY = num(info.get("idStartY"));
                         int bx0 = num(info.get("idBubbleStartX"));
@@ -812,16 +818,14 @@ public class AnswerSheetService {
                         int gy = num(info.get("idBubbleGapY"));
                         int r = num(info.get("idBubbleR"));
                         Map<?, ?> db = (Map<?, ?>) info.get("idDigitBox");
-                        g.setFont(cjkFont(Font.PLAIN, 28));
-                        g.drawString("考号", num(db.get("x")), num(db.get("y")) - 10 + oy);
+                        g.setFont(cjkFont(Font.PLAIN, 26));
+                        g.drawString("考号涂卡", num(db.get("x")), num(db.get("y")) - 12 + oy);
                         for (int d = 0; d < digits; d++) {
-                            int x = num(db.get("x")) + d * gx;
                             for (int n = 0; n < 10; n++) {
                                 int cy = startY + n * gy + oy;
                                 g.drawRect(bx0 + d * gx - r, cy - r, r * 2, r * 2);
-                                String numStr = String.valueOf(n);
-                                g.setFont(cjkFont(Font.PLAIN, 22));
-                                g.drawString(numStr, bx0 + d * gx - 6, cy + 8);
+                                g.setFont(cjkFont(Font.PLAIN, 18));
+                                g.drawString(String.valueOf(n), bx0 + d * gx - 5, cy + 7);
                             }
                         }
                     }

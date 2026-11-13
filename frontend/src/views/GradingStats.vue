@@ -487,6 +487,11 @@ onMounted(async () => {
     const recent = await http.get('/grading/list').catch(() => [])
     paperId.value = recent.find(r => r.paperId)?.paperId || papers.value[0]?.id || null
   }
+  // 从考生管理「错题号」链接跳转过来：带 gradeId 时直接打开该生答卷详情
+  if (route.query.gradeId) {
+    openGradeDetail({ id: route.query.gradeId })
+    router.replace({ query: { ...route.query, gradeId: undefined } })
+  }
   load()
 })
 </script>

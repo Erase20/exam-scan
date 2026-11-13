@@ -370,10 +370,10 @@ public class GradingService {
         GradeSheet gs = new GradeSheet();
         gs.setSheetId(sheet.getId());
         gs.setPaperId(paperId);
-        // 考生识别：考号优先用旧版涂卡识别结果（完整 6-8 位数字），否则以手写 OCR 为准；
-        // 姓名/班级直接采用本页信息区识别结果，识别不出时待人工补录
+        // 考生识别：以考号涂卡区为准（4 位涂点，完整数字才采用），否则以手写 OCR 为准；
+        // 涂卡/OCR 结果均会与考生库核对，命中即以库内姓名/班级为准
         String bubbleNo = layoutStudentNo(layout, norm);
-        gs.setStudentNo(bubbleNo != null && bubbleNo.matches("\\d{6,8}") ? bubbleNo
+        gs.setStudentNo(bubbleNo != null && bubbleNo.matches("\\d{4,8}") ? bubbleNo
                 : (pageStudent[0] == null ? "" : pageStudent[0]));
         gs.setStudentName(pageStudent[1] == null || pageStudent[1].isBlank() ? "待确认" : pageStudent[1]);
         gs.setClassName(pageStudent[2] == null ? "" : pageStudent[2]);
@@ -783,8 +783,8 @@ public class GradingService {
             }
             if (hb != null && cropRegion(norm, hb, dir.resolve(gs.getId() + "-id.jpg"), 24)
                     && !blank(t[0])
-                    // 涂点考号已完整识别（8 位全数字）时保留，否则用手写 OCR 结果补全
-                    && (gs.getStudentNo() == null || !gs.getStudentNo().matches("\\d{6,8}"))) {
+                    // 涂点考号已完整识别（4 位全数字）时保留，否则用手写 OCR 结果补全
+                    && (gs.getStudentNo() == null || !gs.getStudentNo().matches("\\d{4,8}"))) {
                 gs.setStudentNo(t[0]);
                 changed = true;
             }
@@ -970,9 +970,9 @@ public class GradingService {
                     no = cand;
                 }
             }
-            // 兜底：整块信息区内最长的 6~8 位连续数字串即为考号（年级「五1班」的 1 位、分数等短数字不会误命中）
+            // 兜底：整块信息区内最长的 4~8 位连续数字串即为考号（年级「五1班」的 1 位、分数等短数字不会误命中）
             if (no == null) {
-                Matcher dig = Pattern.compile("\\d{6,8}").matcher(text);
+                Matcher dig = Pattern.compile("\\d{4,8}").matcher(text);
                 String best = null;
                 while (dig.find()) {
                     String s = dig.group();
@@ -1216,7 +1216,7 @@ public class GradingService {
         }
         try {
             String no = gs.getStudentNo() == null ? "" : gs.getStudentNo().trim();
-            if (no.matches("\\d{6,8}")) {
+            if (no.matches("\\d{4,8}")) {
                 Student s = studentService.matchByNo(no);
                 if (s != null) {
                     if (!no.equals(s.getStudentNo())) {
@@ -1266,7 +1266,7 @@ public class GradingService {
         }
         // 人工更正考号后，以考生库为准带出登记的姓名/班级（对应字段未人工填写或仍是占位时才回填）
         String no = gs.getStudentNo();
-        if (no != null && no.matches("\\d{6,8}")) {
+        if (no != null && no.matches("\\d{4,8}")) {
             Student s = studentService.matchByNo(no);
             if (s != null) {
                 if (studentName == null || "待确认".equals(gs.getStudentName())) {

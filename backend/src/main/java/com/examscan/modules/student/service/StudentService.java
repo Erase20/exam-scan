@@ -47,7 +47,7 @@ public class StudentService {
     private final ObjectMapper json = new ObjectMapper();
 
     /** 考生列表：keyword 模糊匹配考号/姓名，className 精确过滤 */
-    public List<Student> list(String keyword, String className) {
+    private List<Student> listStudents(String keyword, String className) {
         LambdaQueryWrapper<Student> w = new LambdaQueryWrapper<>();
         if (keyword != null && !keyword.isBlank()) {
             String k = keyword.trim();
@@ -58,6 +58,111 @@ public class StudentService {
         }
         w.orderByAsc(Student::getClassName).orderByAsc(Student::getStudentNo);
         return studentMapper.selectList(w);
+    }
+
+    /**
+     * 考生列表（含考试记录）：每个考生附加 exams = 参加过的试卷及错题号，
+     * 供前端「参加试卷 / 错题号」列显示与跳转链接。
+     */
+    public List<Map<String, Object>> list(String keyword, String className) {
+        List<Student> students = listStudents(keyword, className);
+        if (students.isEmpty()) {
+            return List.of();
+        }
+        // 该批考号的所有阅卷记录（未删除），按考号分组
+        List<String> nos = students.stream().map(Student::getStudentNo).distinct().toList();
+        List<GradeSheet> sheets = gradeSheetMapper.selectList(new LambdaQueryWrapper<GradeSheet>()
+                .in(GradeSheet::getStudentNo, nos)
+                .orderByAsc(GradeSheet::getId));
+        // 涉及试卷的标题与卷内题号映射
+        Set<Long> paperIds = new LinkedHashSet<>();
+        for (GradeSheet gs : sheets) {
+            if (gs.getPaperId() != null) {
+                paperIds.add(gs.getPaperId());
+            }
+        }
+        Map<Long, Paper> paperMap = new HashMap<>();
+        for (Long pid : paperIds) {
+            Paper p = paperMapper.selectById(pid);
+            if (p != null) {
+                paperMap.put(pid, p);
+            }
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        Map<String, List<GradeSheet>> byNo = new LinkedHashMap<>();
+        for (GradeSheet gs : sheets) {
+            if (gs.getStudentNo() != null) {
+                byNo.computeIfAbsent(gs.getStudentNo(), k -> new ArrayList<>()).add(gs);
+            }
+        }
+        for (Student s : students) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", s.getId());
+            m.put("studentNo", s.getStudentNo());
+            m.put("name", s.getName());
+            m.put("className", s.getClassName());
+            m.put("grade", s.getGrade());
+            m.put("createTime", s.getCreateTime());
+            List<Map<String, Object>> exams = new ArrayList<>();
+            for (GradeSheet gs : byNo.getOrDefault(s.getStudentNo(), List.of())) {
+                Paper p = gs.getPaperId() == null ? null : paperMap.get(gs.getPaperId());
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("paperId", gs.getPaperId());
+                e.put("paperTitle", p == null ? "试卷 " + gs.getPaperId() : p.getTitle());
+                e.put("gradeId", gs.getId());
+                e.put("totalScore", gs.getTotalScore());
+                e.put("wrongQnos", wrongQnos(gs, paperMap));
+                exams.add(e);
+            }
+            m.put("exams", exams);
+            out.add(m);
+        }
+        return out;
+    }
+
+    /** 一条阅卷记录的错题号列表（卷内题号，与成绩汇总导出口径一致） */
+    private List<String> wrongQnos(GradeSheet gs, Map<Long, Paper> paperMap) {
+        if (gs.getDetailJson() == null || gs.getDetailJson().isBlank() || gs.getPaperId() == null) {
+            return List.of();
+        }
+        // paper_item 题号映射（大题内序号）
+        Map<Long, String> itemNo = new HashMap<>();
+        List<PaperItem> items = itemMapper.selectList(new LambdaQueryWrapper<PaperItem>()
+                .eq(PaperItem::getPaperId, gs.getPaperId())
+                .orderByAsc(PaperItem::getSectionNo)
+                .orderByAsc(PaperItem::getSortNo));
+        int prevSec = -1;
+        int no = 0;
+        for (PaperItem it : items) {
+            if (it.getSectionNo() != prevSec) {
+                prevSec = it.getSectionNo();
+                no = 1;
+            }
+            itemNo.put(it.getId(), String.valueOf(no));
+            no++;
+        }
+        List<String> wrong = new ArrayList<>();
+        try {
+            List<Map<String, Object>> details = json.readValue(gs.getDetailJson(),
+                    new TypeReference<List<Map<String, Object>>>() {
+                    });
+            for (Map<String, Object> d : details) {
+                Object idv = d.get("paperItemId");
+                if (idv == null) {
+                    continue;
+                }
+                BigDecimal got = toBd(d.get("gotScore"));
+                // detailJson 内 score 为该卷分值，直接用，查不到再回退 paper_item
+                BigDecimal full = toBd(d.get("score"));
+                if (got != null && full != null && got.compareTo(full) < 0) {
+                    Long itemId = Long.valueOf(String.valueOf(idv));
+                    wrong.add(itemNo.getOrDefault(itemId, String.valueOf(itemId)));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析错题明细失败 gradeId={}: {}", gs.getId(), e.getMessage());
+        }
+        return wrong;
     }
 
     /** 新增考生；考号已存在时更新原记录 */
@@ -104,6 +209,21 @@ public class StudentService {
     @Transactional(rollbackFor = Exception.class)
     public void delete(Long id) {
         studentMapper.deleteById(id);
+    }
+
+    /** 批量删除考生（物理删除，与单个删除一致；不级联删除其阅卷成绩记录） */
+    @Transactional(rollbackFor = Exception.class)
+    public int batchDelete(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            throw new BizException("请先勾选要删除的考生");
+        }
+        List<Long> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
+        if (distinct.isEmpty()) {
+            throw new BizException("请先勾选要删除的考生");
+        }
+        int n = studentMapper.deleteByIds(distinct);
+        log.info("批量删除考生: 请求 {} 人，实际删除 {} 人，ids={}", distinct.size(), n, distinct);
+        return n;
     }
 
     /**
