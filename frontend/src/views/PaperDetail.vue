@@ -422,21 +422,26 @@ onMounted(load)
 .single-sheet .p-imgs img { max-height: 340px; }
 .single-nav { display: flex; justify-content: center; gap: 16px; margin-top: 36px; }
 
-/* 单题模式全屏：铺满屏幕、内容垂直居中、字号再加大，适合投屏讲题 */
+/* 单题模式全屏：铺满屏幕、黑体超大字号、内容垂直居中；超出屏幕自动出滚动条 */
 .single-sheet:fullscreen {
   max-width: none; width: 100vw; height: 100vh;
-  padding: 4vh 10vw; box-shadow: none;
-  display: flex; flex-direction: column; justify-content: center;
+  padding: 4vh 9vw; box-shadow: none;
+  display: flex; flex-direction: column;
+  overflow-y: auto;
   background: linear-gradient(180deg, #fffef5 0%, #fff6d9 100%);
+  font-family: '黑体', SimHei, 'Microsoft YaHei', sans-serif;
 }
-.single-sheet:fullscreen .single-head { font-size: 20px; margin-bottom: 32px; }
-.single-sheet:fullscreen .p-stem { font-size: 34px; line-height: 1.9; }
-.single-sheet:fullscreen .p-opts { font-size: 30px; line-height: 2; }
-.single-sheet:fullscreen .p-extra { font-size: 28px; }
+/* 内容不足一屏时上下 margin:auto 实现垂直居中；超出一屏时自动撑开并滚动 */
+.single-sheet:fullscreen > .single-head { margin-top: auto; }
+.single-sheet:fullscreen > .single-nav { margin-bottom: auto; }
+.single-sheet:fullscreen .single-head { font-size: 24px; margin-bottom: 32px; }
+.single-sheet:fullscreen .p-stem { font-size: 42px; line-height: 1.8; font-weight: 700; }
+.single-sheet:fullscreen .p-opts { font-size: 36px; line-height: 1.9; }
+.single-sheet:fullscreen .p-extra { font-size: 32px; line-height: 1.7; }
 .single-sheet:fullscreen .p-imgs { text-align: center; }
-.single-sheet:fullscreen .p-imgs img { max-height: 46vh; max-width: 100%; }
+.single-sheet:fullscreen .p-imgs img { max-height: 38vh; max-width: 100%; }
 .single-sheet:fullscreen .single-nav { margin-top: 44px; }
-.single-sheet:fullscreen .single-nav .el-button { font-size: 16px; padding: 12px 28px; }
+.single-sheet:fullscreen .single-nav .el-button { font-size: 18px; padding: 14px 32px; }
 .preview-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
 .paper-sheet {
   max-width: 820px; margin: 0 auto; background: #fff; color: #111;
