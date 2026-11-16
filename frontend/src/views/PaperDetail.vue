@@ -37,10 +37,13 @@
       </div>
 
       <!-- 单题模式：上下翻页逐题查看，答案跟随上方开关显隐 -->
-      <div v-if="singleMode && curQ" class="paper-sheet single-sheet">
+      <div v-if="singleMode && curQ" ref="singleSheet" class="paper-sheet single-sheet">
         <div class="single-head no-print">
           <span><b>{{ cnNum(curQ.secIdx) }}、{{ curQ.secName }}</b>　第 {{ curQ.no }} 题（{{ typeLabel(curQ.qType) }}，{{ fmtNum(curQ.score) }} 分）</span>
-          <span style="color:#909399">{{ singleIdx + 1 }} / {{ previewList.length }}</span>
+          <span class="single-tools">
+            <span style="color:#909399">{{ singleIdx + 1 }} / {{ previewList.length }}</span>
+            <el-button size="small" type="warning" plain @click="toggleFull">{{ isFull ? '退出全屏' : '⛶ 全屏显示' }}</el-button>
+          </span>
         </div>
         <p class="p-stem"><b>{{ curQ.no }}．</b><span v-html="curQ.stemHtml"></span></p>
         <div v-if="curQ.images.length" class="p-imgs">
@@ -202,6 +205,20 @@ const previewList = computed(() => previewSections.value.flatMap((sec, si) =>
   sec.questions.map((q, qi) => ({ ...q, secName: sec.name, secIdx: si, no: qi + 1 }))))
 const curQ = computed(() => previewList.value[singleIdx.value] || null)
 
+/** 单题卡片全屏（Fullscreen API），Esc 或再次点击退出 */
+const singleSheet = ref(null)
+const isFull = ref(false)
+function toggleFull() {
+  const el = singleSheet.value
+  if (!el) return
+  if (document.fullscreenElement) {
+    document.exitFullscreen()
+  } else {
+    el.requestFullscreen?.()
+  }
+}
+function onFsChange() { isFull.value = !!document.fullscreenElement }
+
 function startPreview() { showAnswer.value = false; singleMode.value = false; preview.value = true }
 
 /** 从编辑区某题直接进入单题预览 */
@@ -217,8 +234,14 @@ function onPreviewKey(e) {
   if (e.key === 'ArrowLeft' && singleIdx.value > 0) singleIdx.value--
   if (e.key === 'ArrowRight' && singleIdx.value < previewList.value.length - 1) singleIdx.value++
 }
-onMounted(() => window.addEventListener('keydown', onPreviewKey))
-onBeforeUnmount(() => window.removeEventListener('keydown', onPreviewKey))
+onMounted(() => {
+  window.addEventListener('keydown', onPreviewKey)
+  document.addEventListener('fullscreenchange', onFsChange)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onPreviewKey)
+  document.removeEventListener('fullscreenchange', onFsChange)
+})
 
 function printPaper() { window.print() }
 const existingIds = computed(() => items.value.map(r => r.item.questionId))
@@ -386,9 +409,34 @@ onMounted(load)
 .q-ans { margin-top: 6px; font-size: 13px; color: #67C23A; }
 
 /* ---------- 试卷预览 ---------- */
-.single-sheet { max-width: 860px; margin: 0 auto; min-height: 50vh; }
-.single-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 14px; }
+/* 单题模式：醒目显示 —— 淡米黄底、加大字号 */
+.single-sheet {
+  max-width: 900px; margin: 0 auto; min-height: 50vh;
+  background: #fffdf0; border: 1px solid #f0dfae;
+}
+.single-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; font-size: 16px; }
+.single-tools { display: inline-flex; align-items: center; gap: 10px; }
+.single-sheet .p-stem { font-size: 24px; line-height: 2; }
+.single-sheet .p-opts { font-size: 21px; line-height: 2.2; }
+.single-sheet .p-extra { font-size: 20px; line-height: 1.8; }
+.single-sheet .p-imgs img { max-height: 340px; }
 .single-nav { display: flex; justify-content: center; gap: 16px; margin-top: 36px; }
+
+/* 单题模式全屏：铺满屏幕、内容垂直居中、字号再加大，适合投屏讲题 */
+.single-sheet:fullscreen {
+  max-width: none; width: 100vw; height: 100vh;
+  padding: 4vh 10vw; box-shadow: none;
+  display: flex; flex-direction: column; justify-content: center;
+  background: linear-gradient(180deg, #fffef5 0%, #fff6d9 100%);
+}
+.single-sheet:fullscreen .single-head { font-size: 20px; margin-bottom: 32px; }
+.single-sheet:fullscreen .p-stem { font-size: 34px; line-height: 1.9; }
+.single-sheet:fullscreen .p-opts { font-size: 30px; line-height: 2; }
+.single-sheet:fullscreen .p-extra { font-size: 28px; }
+.single-sheet:fullscreen .p-imgs { text-align: center; }
+.single-sheet:fullscreen .p-imgs img { max-height: 46vh; max-width: 100%; }
+.single-sheet:fullscreen .single-nav { margin-top: 44px; }
+.single-sheet:fullscreen .single-nav .el-button { font-size: 16px; padding: 12px 28px; }
 .preview-bar { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; flex-wrap: wrap; }
 .paper-sheet {
   max-width: 820px; margin: 0 auto; background: #fff; color: #111;
