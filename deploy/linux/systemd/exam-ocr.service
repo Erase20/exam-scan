@@ -5,9 +5,15 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=@APP_ROOT@/ocr-service
-ExecStart=@PY_EXE@ -m uvicorn app:app --host 127.0.0.1 --port @OCR_PORT@
+Environment=OCR_ENGINE=rapidocr
+Environment=OMP_NUM_THREADS=2
+Environment=OPENBLAS_NUM_THREADS=2
+Environment=ORT_NUM_THREADS=2
+ExecStart=@PY_EXE@ -m uvicorn app:app --host 127.0.0.1 --port @OCR_PORT@ --workers 1
 Restart=always
-RestartSec=3
+RestartSec=5
+# 内存压不住时优先保后端，OCR 可被杀后由 systemd 自动拉起
+OOMScoreAdjust=200
 
 [Install]
 WantedBy=multi-user.target
