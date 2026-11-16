@@ -41,6 +41,7 @@
         <div class="single-head no-print">
           <span><b>{{ cnNum(curQ.secIdx) }}、{{ curQ.secName }}</b>　第 {{ curQ.no }} 题（{{ typeLabel(curQ.qType) }}，{{ fmtNum(curQ.score) }} 分）</span>
           <span class="single-tools">
+            <el-switch v-model="showAnswer" active-text="显示答案" inactive-text="隐藏答案" />
             <span style="color:#909399">{{ singleIdx + 1 }} / {{ previewList.length }}</span>
             <el-button size="small" type="warning" plain @click="toggleFull">{{ isFull ? '退出全屏' : '⛶ 全屏显示' }}</el-button>
           </span>
@@ -435,6 +436,8 @@ onMounted(load)
 .single-sheet:fullscreen > .single-head { margin-top: auto; }
 .single-sheet:fullscreen > .single-nav { margin-bottom: auto; }
 .single-sheet:fullscreen .single-head { font-size: 24px; margin-bottom: 32px; }
+.single-sheet:fullscreen .single-tools .el-switch__label { font-size: 22px; }
+.single-sheet:fullscreen .single-tools .el-switch { --el-switch-on-color: #67C23A; }
 .single-sheet:fullscreen .p-stem { font-size: 42px; line-height: 1.8; font-weight: 700; }
 .single-sheet:fullscreen .p-opts { font-size: 36px; line-height: 1.9; }
 .single-sheet:fullscreen .p-extra { font-size: 32px; line-height: 1.7; }
