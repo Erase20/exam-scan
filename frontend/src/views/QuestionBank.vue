@@ -16,6 +16,12 @@
             <el-option v-for="s in ['数学','语文','英语','物理','化学','科学']" :key="s" :label="s" :value="s" />
           </el-select>
         </el-form-item>
+        <el-form-item label="年级">
+          <el-select v-model="q.grade" style="width:110px" clearable filterable allow-create
+                     default-first-option placeholder="全部">
+            <el-option v-for="g in GRADE_OPTS" :key="g" :label="g" :value="g" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="难度">
           <el-select v-model="q.difficulty" style="width:100px" clearable placeholder="全部">
             <el-option v-for="n in 5" :key="n" :label="n + ' ★'" :value="n" />
@@ -43,6 +49,9 @@
               </el-button>
             </template>
           </el-popconfirm>
+          <el-button type="primary" :disabled="!selection.length" @click="openAddToPaper">
+            加入试卷{{ selection.length ? `（${selection.length}）` : '' }}
+          </el-button>
           <el-button @click="exportBank(true)" :loading="expLoading">导出选中</el-button>
           <el-button type="primary" plain @click="exportBank(false)" :loading="expLoading">导出全部</el-button>
           <el-button type="danger" plain @click="openClear">清空题库</el-button>
@@ -155,6 +164,47 @@
       </template>
     </el-dialog>
 
+    <!-- 批量加入试卷 -->
+    <el-dialog v-model="addToPaperDlg" title="将选中题目加入试卷" width="480px" :close-on-click-modal="false" append-to-body>
+      <el-alert type="info" :closable="false" style="margin-bottom:14px"
+                :title="`已选中 ${selection.length} 道题，已存在于目标试卷中的题目会自动跳过`" />
+      <el-radio-group v-model="addTarget" style="margin-bottom:14px">
+        <el-radio value="exist">加入已有试卷</el-radio>
+        <el-radio value="new">新建试卷</el-radio>
+      </el-radio-group>
+      <template v-if="addTarget === 'exist'">
+        <el-select v-model="addPaperId" filterable placeholder="选择目标试卷" style="width:100%">
+          <el-option v-for="p in paperList" :key="p.id" :value="p.id"
+                     :label="`${p.title}（${p.grade || '未设年级'}${p.subject ? '·' + p.subject : ''}，${p.questionCount ?? 0} 题）`" />
+        </el-select>
+      </template>
+      <template v-else>
+        <el-form label-width="80px" size="default">
+          <el-form-item label="试卷标题" required>
+            <el-input v-model="newPaper.title" placeholder="如：六年级期中测试" />
+          </el-form-item>
+          <el-form-item label="学科">
+            <el-select v-model="newPaper.subject" clearable style="width:100%">
+              <el-option v-for="s in ['数学','语文','英语','物理','化学','科学']" :key="s" :label="s" :value="s" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="年级">
+            <el-select v-model="newPaper.grade" clearable filterable allow-create style="width:100%">
+              <el-option v-for="g in GRADE_OPTS" :key="g" :label="g" :value="g" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="时长(分)">
+            <el-input-number v-model="newPaper.duration" :min="10" :max="300" style="width:100%" />
+          </el-form-item>
+        </el-form>
+      </template>
+      <template #footer>
+        <el-button @click="addToPaperDlg = false">取消</el-button>
+        <el-button type="primary" :loading="addLoading" :disabled="addTarget === 'exist' ? !addPaperId : !newPaper.title.trim()"
+                   @click="doAddToPaper">确认加入</el-button>
+      </template>
+    </el-dialog>
+
     <el-drawer v-model="drawer" :title="editMode ? (isCreate ? '手动新增题目' : '编辑题目') : '题目详情'" size="520px" :close-on-click-modal="false">
       <template v-if="cur">
         <!-- 编辑模式 -->
@@ -192,7 +242,10 @@
             </el-col>
             <el-col :span="12">
               <el-form-item label="年级">
-                <el-input v-model="form.grade" />
+                <el-select v-model="form.grade" clearable filterable allow-create
+                           default-first-option placeholder="选择或输入年级">
+                  <el-option v-for="g in GRADE_OPTS" :key="g" :label="g" :value="g" />
+                </el-select>
               </el-form-item>
             </el-col>
             <el-col :span="12">
@@ -307,7 +360,8 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http, { Q_TYPE_LABELS } from '../api'
 
-const q = reactive({ page: 1, size: 10, keyword: '', qType: '', subject: '', difficulty: null, sortBy: '', sortOrder: '', courseNo: [], courseNoEmpty: false })
+const GRADE_OPTS = ['一年级','二年级','三年级','四年级','五年级','六年级','七年级','八年级','九年级','高一','高二','高三']
+const q = reactive({ page: 1, size: 10, keyword: '', qType: '', subject: '', grade: '', difficulty: null, sortBy: '', sortOrder: '', courseNo: [], courseNoEmpty: false })
 const rows = ref([]); const total = ref(0); const loading = ref(false)
 const drawer = ref(false); const cur = ref(null); const simOfCur = ref([])
 const simText = ref(false); const simInput = ref(''); const simResults = ref([]); const simLoading = ref(false)
@@ -597,7 +651,49 @@ async function del(id) {
   load()
 }
 
-const selection = ref([]); const delLoading = ref(false)
+const selection = ref([])
+
+// ---------- 批量加入试卷 ----------
+const addToPaperDlg = ref(false); const addTarget = ref('exist')
+const addPaperId = ref(null); const paperList = ref([])
+const newPaper = ref({ title: '', subject: '', grade: '', duration: 90 })
+const addLoading = ref(false)
+
+async function openAddToPaper() {
+  if (!selection.value.length) return
+  addTarget.value = 'exist'
+  addPaperId.value = null
+  newPaper.value = { title: '', subject: selection.value[0]?.subject || '', grade: selection.value[0]?.grade || '', duration: 90 }
+  if (!paperList.value.length) {
+    paperList.value = await http.get('/paper/list').catch(() => [])
+  }
+  addToPaperDlg.value = true
+}
+
+async function doAddToPaper() {
+  addLoading.value = true
+  try {
+    const body = {
+      questionIds: selection.value.map(s => s.id),
+      paperId: addTarget.value === 'exist' ? addPaperId.value : null,
+    }
+    if (addTarget.value === 'new') {
+      Object.assign(body, {
+        newTitle: newPaper.value.title,
+        newSubject: newPaper.value.subject || null,
+        newGrade: newPaper.value.grade || null,
+        newDuration: newPaper.value.duration || 90,
+      })
+    }
+    const r = await http.post('/paper/add-questions', body)
+    addToPaperDlg.value = false
+    ElMessage.success(`已加入试卷「${r.paperTitle}」：新增 ${r.added} 道${r.skipped ? `，跳过重复 ${r.skipped} 道` : ''}`)
+    if (addTarget.value === 'new') paperList.value = []
+    selection.value = []
+  } finally {
+    addLoading.value = false
+  }
+}; const delLoading = ref(false)
 async function delBatch() {
   delLoading.value = true
   try {

@@ -1,6 +1,7 @@
 package com.examscan.modules.paper.controller;
 
 import com.examscan.common.R;
+import com.examscan.modules.paper.dto.AddQuestionsRequest;
 import com.examscan.modules.paper.dto.CustomPaperRequest;
 import com.examscan.modules.paper.dto.PaperConfig;
 import com.examscan.modules.paper.entity.Paper;
@@ -36,6 +37,12 @@ public class PaperController {
     @PostMapping("/custom-build")
     public R<Map<String, Object>> customBuild(@RequestBody CustomPaperRequest req) {
         return R.ok(paperService.customBuild(req));
+    }
+
+    /** 题库批量加入试卷（可加入已有试卷，也可直接新建试卷），重复题目自动跳过 */
+    @PostMapping("/add-questions")
+    public R<Map<String, Object>> addQuestions(@RequestBody AddQuestionsRequest req) {
+        return R.ok(paperService.addQuestions(req));
     }
 
     @GetMapping("/list")

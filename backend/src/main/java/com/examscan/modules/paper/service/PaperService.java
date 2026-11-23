@@ -6,6 +6,7 @@ import com.examscan.common.QuestionType;
 import com.examscan.modules.answer.entity.AnswerSheet;
 import com.examscan.modules.answer.mapper.AnswerSheetMapper;
 import com.examscan.modules.answer.service.AnswerSheetService;
+import com.examscan.modules.paper.dto.AddQuestionsRequest;
 import com.examscan.modules.paper.dto.CustomPaperRequest;
 import com.examscan.modules.paper.dto.PaperConfig;
 import com.examscan.modules.paper.entity.Paper;
@@ -650,6 +651,60 @@ public class PaperService {
         recalcTotal(paperId);
         // 追加后按固定题型顺序归位，保证大题顺序始终符合标准卷面
         reorderPaper(paperId);
+    }
+
+    /**
+     * 题库批量加入试卷：paperId 与 newTitle 二选一（newTitle 优先，直接新建试卷）。
+     * 已存在于目标试卷的题目自动跳过，不报错；返回 {paperId, added, skipped}。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Map<String, Object> addQuestions(AddQuestionsRequest req) {
+        List<Long> ids = req.getQuestionIds() == null ? List.of()
+                : req.getQuestionIds().stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            throw new BizException("请先勾选要加入的题目");
+        }
+        Paper paper;
+        if (req.getNewTitle() != null && !req.getNewTitle().isBlank()) {
+            paper = new Paper();
+            paper.setTitle(req.getNewTitle().trim());
+            paper.setSubject(req.getNewSubject());
+            paper.setGrade(req.getNewGrade());
+            paper.setDuration(req.getNewDuration() == null ? 90 : req.getNewDuration());
+            paper.setPaperType("MANUAL");
+            paper.setStatus("DRAFT");
+            paper.setDeleted(0);
+            paper.setQuestionCount(0);
+            paper.setTotalScore(BigDecimal.ZERO);
+            paperMapper.insert(paper);
+        } else {
+            if (req.getPaperId() == null) {
+                throw new BizException("请选择目标试卷或填写新试卷标题");
+            }
+            paper = paperMapper.selectById(req.getPaperId());
+            if (paper == null) {
+                throw new BizException("目标试卷不存在");
+            }
+        }
+        int added = 0;
+        int skipped = 0;
+        for (Long qid : ids) {
+            Long dup = itemMapper.selectCount(new LambdaQueryWrapper<PaperItem>()
+                    .eq(PaperItem::getPaperId, paper.getId())
+                    .eq(PaperItem::getQuestionId, qid));
+            if (dup != null && dup > 0) {
+                skipped++;
+                continue;
+            }
+            try {
+                addItem(paper.getId(), qid, null, null);
+                added++;
+            } catch (BizException e) {
+                skipped++;
+            }
+        }
+        return Map.of("paperId", paper.getId(), "paperTitle", paper.getTitle(),
+                "added", added, "skipped", skipped);
     }
 
     /**
