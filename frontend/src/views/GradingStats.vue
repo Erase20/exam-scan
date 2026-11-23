@@ -190,21 +190,21 @@
                   <el-table-column prop="className" label="班级" min-width="100" />
                   <el-table-column prop="studentName" label="姓名" min-width="90" />
                   <el-table-column prop="studentNo" label="考号" min-width="110">
-                    <template #default="{ r }">{{ r.studentNo || '—' }}</template>
+                    <template #default="{ row: r }">{{ r.studentNo || '—' }}</template>
                   </el-table-column>
                   <el-table-column label="判定" width="80" align="center">
-                    <template #default="{ r }">
+                    <template #default="{ row: r }">
                       <el-tag size="small" :type="verdictTag(r.verdict)">{{ verdictLabel(r.verdict) }}</el-tag>
                     </template>
                   </el-table-column>
                   <el-table-column label="作答" min-width="120" show-overflow-tooltip>
-                    <template #default="{ r }">{{ r.studentAnswer || '—' }}</template>
+                    <template #default="{ row: r }">{{ r.studentAnswer || '—' }}</template>
                   </el-table-column>
                   <el-table-column label="该题得分" width="100" align="center">
-                    <template #default="{ r }">{{ fmt(r.gotScore) }} / {{ fmt(r.fullScore) }}</template>
+                    <template #default="{ row: r }">{{ fmt(r.gotScore) }} / {{ fmt(r.fullScore) }}</template>
                   </el-table-column>
                   <el-table-column label="操作" width="90" align="center">
-                    <template #default="{ r }">
+                    <template #default="{ row: r }">
                       <el-button link type="primary" size="small"
                                  @click="openGradeDetail({ id: r.gradeId }, r.qNo)">看答卷</el-button>
                     </template>
