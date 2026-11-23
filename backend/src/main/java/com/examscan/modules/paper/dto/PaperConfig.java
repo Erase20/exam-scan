@@ -22,6 +22,8 @@ public class PaperConfig {
     private Integer maxDifficulty;
     /** 知识点过滤（逗号分隔，命中任一即可） */
     private String knowledge;
+    /** 课号过滤（逗号分隔，命中任一即可） */
+    private String courseNo;
     /** 章节配置 */
     private List<SectionConfig> sections;
 

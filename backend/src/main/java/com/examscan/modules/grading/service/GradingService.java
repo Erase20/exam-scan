@@ -33,6 +33,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -60,6 +63,17 @@ public class GradingService {
     private final ObjectMapper json = new ObjectMapper();
     private final OcrClient ocrClient;
     private final StudentService studentService;
+
+    /**
+     * OCR 并行调用线程池（daemon 线程）：手机阅卷时信息区 3 个字段、每道主观题的 OCR
+     * 原先串行执行，一张卡要发 5~15 次顺序 HTTP 请求，耗时 10 秒以上；
+     * 并发 4 路调用后单卡识别可控制在 3~5 秒。
+     */
+    private final ExecutorService ocrPool = Executors.newFixedThreadPool(4, r -> {
+        Thread t = new Thread(r, "ocr-call");
+        t.setDaemon(true);
+        return t;
+    });
 
     @Value("${exam-scan.storage.root:./data/storage}")
     private String storageRoot;
@@ -832,15 +846,29 @@ public class GradingService {
             return out;
         }
         try {
+            // 三个字段并行识别（原先串行要 3~7 次顺序 HTTP 调用，是单卡识别耗时的大头）
+            Future<String> fId = null, fName = null, fClass = null;
             if (info.get("idHandBox") instanceof Map<?, ?> hb) {
-                out[0] = ocrIdRegion(cropBytes(norm, hb, 24));
+                byte[] b = cropBytes(norm, hb, 24);
+                if (b != null) {
+                    fId = ocrPool.submit(() -> ocrIdRegion(b));
+                }
             }
             if (info.get("nameBox") instanceof Map<?, ?> nb) {
-                out[1] = ocrInfoRegion(cropBytes(norm, nb, 24), "姓名");
+                byte[] b = cropBytes(norm, nb, 24);
+                if (b != null) {
+                    fName = ocrPool.submit(() -> ocrInfoRegion(b, "姓名"));
+                }
             }
             if (info.get("classBox") instanceof Map<?, ?> cb) {
-                out[2] = ocrInfoRegion(cropBytes(norm, cb, 24), "班级");
+                byte[] b = cropBytes(norm, cb, 24);
+                if (b != null) {
+                    fClass = ocrPool.submit(() -> ocrInfoRegion(b, "班级"));
+                }
             }
+            out[0] = awaitOcr(fId);
+            out[1] = awaitOcr(fName);
+            out[2] = awaitOcr(fClass);
             // 整块信息区 OCR 兜底：分块识别不出的字段，用整块识别补全（提高手写字段识别率）
             if (blank(out[0]) || blank(out[1]) || blank(out[2])) {
                 Map<String, String> w = ocrInfoWhole(cropBytes(norm, unionInfoBox(info), 24));
@@ -858,6 +886,18 @@ public class GradingService {
             log.warn("考生信息区识别失败: {}", e.getMessage());
         }
         return out;
+    }
+
+    /** 等待并行 OCR 任务结果（异常按失败处理返回空串） */
+    private String awaitOcr(Future<String> f) {
+        if (f == null) {
+            return "";
+        }
+        try {
+            return f.get();
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /** 从校正后的答题卡图裁剪选区并返回字节（裁剪失败返回 null） */
@@ -1368,6 +1408,7 @@ public class GradingService {
         Map<Long, String> ocrByItem = new HashMap<>();
         boolean ocrReady = useOcr && ocrClient.isAvailable();
         List<?> cells = (List<?>) layout.get("cells");
+        List<Future<Map.Entry<Long, String>>> ocrTasks = new ArrayList<>();
         if (cells != null) {
             for (Object o : cells) {
                 Map<?, ?> cell = (Map<?, ?>) o;
@@ -1378,14 +1419,22 @@ public class GradingService {
                 Path out = dir.resolve(gs.getId() + "-cell-" + pid + ".jpg");
                 if (cropRegion(norm, bx, out)) {
                     urlByItem.put(pid, "/api/grading/" + gs.getId() + "/cell/" + pid);
-                    // 主观题（填空/解答）自动 OCR 学生手写答案；客观题用涂点判定结果，无需 OCR
+                    // 主观题（填空/解答）自动 OCR 学生手写答案；客观题用涂点判定结果，无需 OCR。
+                    // 多道主观题并发识别（ocrAnswerArea 内部会先做空白框跳过判断）
                     if (ocrReady && !"bubble".equals(String.valueOf(cell.get("renderType")))) {
-                        String t = ocrAnswerArea(norm, bx, out, String.valueOf(cell.get("qNo")));
-                        if (!t.isBlank()) {
-                            ocrByItem.put(pid, t);
-                        }
+                        String qNo = String.valueOf(cell.get("qNo"));
+                        ocrTasks.add(ocrPool.submit(() -> Map.entry(pid, ocrAnswerArea(norm, bx, out, qNo))));
                     }
                 }
+            }
+        }
+        for (Future<Map.Entry<Long, String>> f : ocrTasks) {
+            try {
+                Map.Entry<Long, String> e = f.get();
+                if (e.getValue() != null && !e.getValue().isBlank()) {
+                    ocrByItem.put(e.getKey(), e.getValue());
+                }
+            } catch (Exception ignored) {
             }
         }
         boolean changed = false;

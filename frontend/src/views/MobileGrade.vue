@@ -11,17 +11,19 @@
       <b>「云加速 / 极速模式」</b>后刷新，或改用系统自带浏览器打开本页。
     </div>
 
-    <!-- 试卷选择：URL 带 paperId 时锁定，否则现场选择 -->
+    <!-- 试卷选择：显示当前试卷，随时可点「更换试卷」切换 -->
     <div class="m-card">
-      <template v-if="curPaper">
+      <template v-if="curPaper && !switching">
         <div class="m-paper-name">当前试卷</div>
         <div class="m-paper-title">{{ curPaper.title }}（{{ curPaper.totalScore }} 分）</div>
+        <button type="button" class="m-change" :disabled="uploading" @click="switching = true">🔄 更换试卷</button>
       </template>
       <template v-else>
         <div class="m-paper-name">选择试卷</div>
         <select v-model="selPaperId" class="m-select">
           <option v-for="p in papers" :key="p.id" :value="p.id">{{ p.title }}（{{ p.totalScore }} 分）</option>
         </select>
+        <button v-if="curPaper" type="button" class="m-change" @click="switching = false; mergeIntoId = null">✓ 使用该试卷</button>
       </template>
     </div>
 
@@ -160,9 +162,10 @@ const crops = computed(() => {
   ].filter(c => c.url)
 })
 
-// URL 带 paperId 时锁定试卷；否则从试卷列表里选
+// URL 带 paperId 时默认选中该卷；点「更换试卷」后可自由切换
 const urlPaperId = route.query.paperId ? Number(route.query.paperId) : null
-const curPaperId = computed(() => urlPaperId || selPaperId.value)
+const switching = ref(false)
+const curPaperId = computed(() => (switching.value ? selPaperId.value : (urlPaperId || selPaperId.value)))
 const curPaper = computed(() => papers.value.find(p => Number(p.id) === Number(curPaperId.value)))
 
 const verdictLabel = v => ({ CORRECT: '正确', WRONG: '错误', BLANK: '未作答', MULTI: '多涂', MANUAL: '待人工' }[v] || v)
@@ -266,6 +269,11 @@ onBeforeUnmount(() => {
 .m-card { background: #fff; border-radius: 12px; padding: 14px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.06); }
 .m-paper-name { font-size: 12px; color: #909399; margin-bottom: 4px; }
 .m-paper-title { font-size: 15px; font-weight: 600; }
+.m-change {
+  display: block; width: 100%; box-sizing: border-box; padding: 9px 0; margin-top: 8px;
+  border: 1px solid #dcdfe6; border-radius: 8px; background: #f5f7fa;
+  font-size: 14px; font-family: inherit; cursor: pointer; user-select: none;
+}
 .m-select { width: 100%; padding: 10px; font-size: 15px; border: 1px solid #dcdfe6; border-radius: 8px; }
 .m-actions { text-align: center; }
 .m-shot, .m-album {

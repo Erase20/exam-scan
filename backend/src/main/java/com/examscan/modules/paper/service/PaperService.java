@@ -196,6 +196,22 @@ public class PaperService {
                 }
             });
         }
+        if (cfg.getCourseNo() != null && !cfg.getCourseNo().isBlank()) {
+            w.and(x -> {
+                boolean first = true;
+                for (String cn : cfg.getCourseNo().split(",")) {
+                    if (cn.isBlank()) {
+                        continue;
+                    }
+                    if (first) {
+                        x.eq(Question::getCourseNo, cn.trim());
+                        first = false;
+                    } else {
+                        x.or().eq(Question::getCourseNo, cn.trim());
+                    }
+                }
+            });
+        }
         List<Question> pool = questionMapper.selectList(w);
         pool.removeIf(q -> used.contains(q.getId()));
 

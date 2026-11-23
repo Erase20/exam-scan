@@ -10,6 +10,12 @@
             <el-form-item label="试卷标题"><el-input v-model="cfg.title" style="width:240px" placeholder="如：五年级数学期末测试卷" /></el-form-item>
             <el-form-item label="学科"><el-select v-model="cfg.subject" style="width:110px"><el-option v-for="s in subjects" :key="s" :label="s" :value="s" /></el-select></el-form-item>
             <el-form-item label="年级"><el-select v-model="cfg.grade" style="width:110px"><el-option v-for="g in grades" :key="g" :label="g" :value="g" /></el-select></el-form-item>
+            <el-form-item label="课号筛选">
+              <el-select v-model="cfgCourseNo" multiple clearable collapse-tags collapse-tags-tooltip
+                         placeholder="全部课号" style="width:170px">
+                <el-option v-for="n in courseNoOpts" :key="n" :label="n" :value="n" />
+              </el-select>
+            </el-form-item>
             <el-form-item label="时长(分)"><el-input-number v-model="cfg.duration" :min="20" :max="180" /></el-form-item>
             <el-form-item label="目标总分"><el-input-number v-model="cfg.targetScore" :min="0" :max="1000" /></el-form-item>
           </el-form>
@@ -263,6 +269,7 @@ const cfg = ref({
   ],
 })
 const papers = ref([]); const building = ref(false)
+const cfgCourseNo = ref([])
 const total = computed(() => cfg.value.sections.reduce((s, x) => s + (x.count || 0) * (x.scorePerQuestion || 0), 0).toFixed(1))
 
 function addSection() {
@@ -272,7 +279,11 @@ function addSection() {
 async function build() {
   building.value = true
   try {
-    const r = await http.post('/paper/auto-build', { ...cfg.value, targetScore: cfg.value.targetScore || null })
+    const r = await http.post('/paper/auto-build', {
+      ...cfg.value,
+      targetScore: cfg.value.targetScore || null,
+      courseNo: cfgCourseNo.value.length ? cfgCourseNo.value.join(',') : null,
+    })
     let msg = `组卷成功：${r.questionCount} 题，总分 ${r.totalScore} 分`
     if (r.warnings?.length) msg += '；' + r.warnings.join('；')
     r.warnings?.length ? ElMessage.warning(msg) : ElMessage.success(msg)

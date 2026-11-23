@@ -27,8 +27,16 @@ import java.util.Map;
 @Service
 public class OcrClient {
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    /** 主调用：连接 3 秒 / 读取 90 秒（大图整页识别较慢） */
+    private final RestTemplate restTemplate;
+    /** 健康探测专用：连接+读取各 2 秒，避免拖慢主流程 */
+    private final RestTemplate healthRestTemplate = shortTimeoutRestTemplate();
     private final ObjectMapper mapper = new ObjectMapper();
+
+    /** 健康探测结果缓存 30 秒：识别流程中每次小图 OCR 前都探测一次太浪费 */
+    private static final long HEALTH_CACHE_MS = 30_000;
+    private volatile long lastHealthCheck;
+    private volatile boolean lastHealthResult;
 
     @Value("${exam-scan.ocr.engine:local}")
     private String engine;
@@ -39,12 +47,39 @@ public class OcrClient {
     @Value("${exam-scan.ocr.timeout-seconds:300}")
     private int timeout;
 
+    public OcrClient() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory f =
+                new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        f.setConnectTimeout(3_000);
+        f.setReadTimeout(90_000);
+        this.restTemplate = new RestTemplate(f);
+    }
+
+    private static RestTemplate shortTimeoutRestTemplate() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory f =
+                new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        f.setConnectTimeout(2_000);
+        f.setReadTimeout(2_000);
+        return new RestTemplate(f);
+    }
+
     public boolean isAvailable() {
         if ("mock".equalsIgnoreCase(engine)) {
             return true;
         }
+        long now = System.currentTimeMillis();
+        if (now - lastHealthCheck < HEALTH_CACHE_MS) {
+            return lastHealthResult;
+        }
+        boolean ok = doHealthCheck();
+        lastHealthCheck = now;
+        lastHealthResult = ok;
+        return ok;
+    }
+
+    private boolean doHealthCheck() {
         try {
-            String resp = restTemplate.getForObject(baseUrl + "/health", String.class);
+            String resp = healthRestTemplate.getForObject(baseUrl + "/health", String.class);
             return resp != null && resp.contains("\"status\"");
         } catch (Exception e) {
             log.warn("OCR 服务不可用: {}", e.getMessage());
