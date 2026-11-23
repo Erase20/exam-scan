@@ -79,6 +79,15 @@
       </div>
       <div class="m-sub">考号 {{ result.studentNo || '未识别' }} · 姓名 {{ result.studentName || '未识别' }} · 班级 {{ result.className || '未识别' }}</div>
       <div class="m-sub">客观题 {{ result.objectiveScore }} 分 · {{ result.mode === 'fast' ? '快速截图模式' : '全部 OCR 模式' }}</div>
+      <!-- 非考生库考生提示 + 修正入口 -->
+      <div v-if="result.inLibrary === false" class="m-lib-warn">
+        <div class="m-lib-warn-text">
+          ⚠️ {{ result.studentNo && result.studentNo !== '未识别' && /^\d{4,8}$/.test(result.studentNo)
+            ? '该考生不在考生库中，请核对是否为本库考生'
+            : '考生信息识别不完整，请核对答题卡并修正' }}
+        </div>
+        <button type="button" class="m-lib-fix" @click="libDlg = true; searchStudents()">✏️ 修正考生信息</button>
+      </div>
       <div v-if="crops.length" class="m-crops">
         <div v-for="c in crops" :key="c.label" class="m-crop">
           <el-image :src="c.url" class="m-crop-img" fit="cover"
@@ -123,6 +132,23 @@
     <PhotoFrame v-model="frameVisible" title="拍照阅卷" :aspect="0.707"
                 hint="请正对答题卡，把整张答题卡（含四角黑色定位方块）放入绿色线框内，避免倾斜、反光和遮挡"
                 @confirm="onFramedPhoto" />
+
+    <!-- 修正考生信息：从考生库中选择，不允许凭空录入 -->
+    <div v-if="libDlg" class="m-modal-mask" @click.self="libDlg = false">
+      <div class="m-modal">
+        <div class="m-modal-title">修正考生信息（记录 #{{ result?.gradeId }}）</div>
+        <input v-model="libKeyword" class="m-select" style="margin-bottom:8px"
+               placeholder="搜索考号 / 姓名" @input="searchStudents" />
+        <div class="m-lib-list">
+          <div v-if="!libStudents.length" class="m-muted">无匹配考生，请到「考生管理」先导入考生名单</div>
+          <div v-for="s in libStudents" :key="s.id" class="m-lib-item" @click="pickStudent(s)">
+            <b>{{ s.name }}</b>
+            <span class="m-muted">{{ s.studentNo }} · {{ s.className || '未设班级' }}</span>
+          </div>
+        </div>
+        <button type="button" class="m-change" style="margin-top:10px" @click="libDlg = false">取消</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -170,6 +196,36 @@ const curPaper = computed(() => papers.value.find(p => Number(p.id) === Number(c
 
 const verdictLabel = v => ({ CORRECT: '正确', WRONG: '错误', BLANK: '未作答', MULTI: '多涂', MANUAL: '待人工' }[v] || v)
 const verdictType = v => ({ CORRECT: 'success', WRONG: 'danger', BLANK: 'info', MULTI: 'warning', MANUAL: 'warning' }[v] || 'info')
+
+// ---------- 非考生库考生修正 ----------
+const libDlg = ref(false)
+const libKeyword = ref('')
+const libStudents = ref([])
+let libSearchTimer = null
+
+function searchStudents() {
+  clearTimeout(libSearchTimer)
+  libSearchTimer = setTimeout(async () => {
+    const d = await http.get('/student/list', { params: { keyword: libKeyword.value } }).catch(() => ({ data: [] }))
+    libStudents.value = (d.data || d || []).slice(0, 20)
+  }, 300)
+}
+
+async function pickStudent(s) {
+  try {
+    await http.post(`/grading/${result.value.gradeId}/info`, {
+      studentNo: s.studentNo, studentName: s.name, className: s.className || '',
+    })
+    ElMessage.success(`已修正为考生：${s.name}（${s.studentNo}）`)
+    libDlg.value = false
+    // 更新结果卡显示（考生库为准）
+    result.value.studentNo = s.studentNo
+    result.value.studentName = s.name
+    result.value.className = s.className || ''
+    result.value.inLibrary = true
+    loadRecords()
+  } catch (e) { /* 拦截器已提示 */ }
+}
 
 /** 手机照片先压缩再上传（公共实现见 utils/mobile.js） */
 
@@ -222,6 +278,7 @@ async function showRecord(id) {
     for (const x of d.details || []) cnt[x.verdict] = (cnt[x.verdict] || 0) + 1
     result.value = {
       gradeId: g.id, mode: g.mode, studentNo: g.studentNo, studentName: g.studentName, className: g.className,
+      inLibrary: d.inLibrary !== false,
       nameCrop: d.nameCrop, classCrop: d.classCrop, idCrop: d.idCrop, infoCrop: d.infoCrop,
       objectiveScore: g.objectiveScore,
       totalScore: g.totalScore, fullScore: g.fullScore, status: g.status,
@@ -274,6 +331,35 @@ onBeforeUnmount(() => {
   border: 1px solid #dcdfe6; border-radius: 8px; background: #f5f7fa;
   font-size: 14px; font-family: inherit; cursor: pointer; user-select: none;
 }
+/* 非考生库考生提示条 */
+.m-lib-warn {
+  margin: 8px 0; padding: 10px; border-radius: 8px;
+  background: #fdf6ec; border: 1px solid #f5dab1;
+}
+.m-lib-warn-text { font-size: 13px; color: #b88230; font-weight: 600; margin-bottom: 8px; }
+.m-lib-fix {
+  display: block; width: 100%; box-sizing: border-box; padding: 10px 0;
+  border: 0; border-radius: 8px; background: #e6a23c; color: #fff;
+  font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer;
+}
+/* 修正弹窗 */
+.m-modal-mask {
+  position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 2000;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.m-modal {
+  width: 100%; max-width: 480px; box-sizing: border-box;
+  background: #fff; border-radius: 14px 14px 0 0; padding: 16px;
+  max-height: 70vh; display: flex; flex-direction: column;
+}
+.m-modal-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; }
+.m-lib-list { overflow-y: auto; flex: 1; min-height: 120px; }
+.m-lib-item {
+  padding: 10px 6px; border-bottom: 1px solid #f0f0f0;
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 14px; cursor: pointer;
+}
+.m-lib-item:active { background: #f5f7fa; }
 .m-select { width: 100%; padding: 10px; font-size: 15px; border: 1px solid #dcdfe6; border-radius: 8px; }
 .m-actions { text-align: center; }
 .m-shot, .m-album {

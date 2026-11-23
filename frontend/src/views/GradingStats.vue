@@ -219,6 +219,9 @@
     <el-dialog v-model="gdVisible" width="900px" top="4vh"
                :title="gdGrade ? `答卷详情：${gdGrade.studentName || '待确认'}（${gdGrade.studentNo || '考号未识别'}）` : '答卷详情'">
       <div v-loading="gdLoading">
+        <el-alert v-if="gdDetail && gdDetail.inLibrary === false" type="warning" :closable="false"
+                  style="margin-bottom:10px"
+                  title="⚠️ 该考生不在考生库中（考生须先在「考生管理」导入/录入），请核对答题卡后到阅卷记录中修正考生信息" />
         <div v-if="gdGrade" class="gd-head">
           <span>客观题 <b>{{ fmt(gdGrade.objectiveScore) }}</b></span>
           <span>主观题 <b>{{ fmt(gdGrade.subjectiveScore) }}</b></span>
@@ -418,6 +421,7 @@ async function loadWrong() {
 const gdVisible = ref(false)
 const gdLoading = ref(false)
 const gdGrade = ref(null)
+const gdDetail = ref(null)
 const gdGradeId = ref(null)
 const gdDetails = ref([])
 const gdPicked = ref(null)
@@ -430,6 +434,7 @@ async function openGradeDetail(row, targetQNo) {
   gdVisible.value = true
   gdLoading.value = true
   gdGrade.value = null
+  gdDetail.value = null
   gdDetails.value = []
   gdPicked.value = null
   gdOcrText.value = null
@@ -437,6 +442,7 @@ async function openGradeDetail(row, targetQNo) {
   try {
     const d = await http.get(`/grading/${row.id}`)
     gdGrade.value = d.grade
+    gdDetail.value = d
     gdDetails.value = d.details || []
     // 指定题号（考生管理错题号跳转）优先定位；否则默认第一道错题
     let pick = null

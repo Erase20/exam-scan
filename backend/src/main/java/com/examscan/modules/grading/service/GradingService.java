@@ -377,7 +377,7 @@ public class GradingService {
                 fillMissingStudentInfo(existing, pageStudent);
                 matchStudentLibrary(existing);
                 gradeSheetMapper.updateById(existing);
-                return gradeOut(existing, prev, useOcr);
+                return gradeOut(existing, prev, useOcr, true);
             }
         }
 
@@ -392,7 +392,7 @@ public class GradingService {
         gs.setStudentName(pageStudent[1] == null || pageStudent[1].isBlank() ? "待确认" : pageStudent[1]);
         gs.setClassName(pageStudent[2] == null ? "" : pageStudent[2]);
         // 与考生库核对：考号能对上的直接采用库内姓名/班级（手写识别不准时以考生库为准）
-        matchStudentLibrary(gs);
+        boolean inLibrary = matchStudentLibrary(gs);
         gs.setObjectiveScore(objectiveScore);
         gs.setSubjectiveScore(BigDecimal.ZERO);
         gs.setTotalScore(total);
@@ -405,8 +405,8 @@ public class GradingService {
         } catch (Exception ignored) {
         }
         gradeSheetMapper.insert(gs);
-        // 考生自动补录：按考号登记到考生表（失败不影响阅卷主流程）
-        studentService.upsertFromGrading(gs.getStudentNo(), gs.getStudentName(), gs.getClassName());
+        // 考生管理规则：考生必须预先在考生管理中导入/录入；
+        // 阅卷不再自动登记新考生，未命中考生库的记录标记 inLibrary=false，由前端提示并允许人工修正
 
         // 保存答题卡原图，供阅卷记录回看与导出
         if (imageBytes != null && imageBytes.length > 0) {
@@ -436,14 +436,15 @@ public class GradingService {
             log.warn("作答区截图失败: {}", e.getMessage());
         }
 
-        return gradeOut(gs, details, useOcr);
+        return gradeOut(gs, details, useOcr, inLibrary);
     }
 
-    private Map<String, Object> gradeOut(GradeSheet gs, List<Map<String, Object>> details, boolean useOcr) {
+    private Map<String, Object> gradeOut(GradeSheet gs, List<Map<String, Object>> details, boolean useOcr, boolean inLibrary) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("gradeId", gs.getId());
         out.put("mode", useOcr ? "ocr" : "fast");
         out.put("paperId", gs.getPaperId());
+        out.put("inLibrary", inLibrary);
         out.put("studentNo", gs.getStudentNo());
         out.put("studentName", gs.getStudentName());
         out.put("className", gs.getClassName());
@@ -680,6 +681,16 @@ public class GradingService {
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("grade", gs);
+        // 该记录考生是否在考生库中（按考号核对），供前端提示「非考生库考生」
+        boolean inLib = false;
+        String no = gs.getStudentNo();
+        if (no != null && no.matches("\\d{4,8}")) {
+            try {
+                inLib = studentService.matchByNo(no.trim()) != null;
+            } catch (Exception ignored) {
+            }
+        }
+        out.put("inLibrary", inLib);
         try {
             out.put("details", json.readValue(gs.getDetailJson() == null ? "[]" : gs.getDetailJson(), List.class));
         } catch (Exception e) {
@@ -1247,12 +1258,12 @@ public class GradingService {
      * 与考生库核对，以考生库为准：
      *  1. 考号（涂卡/手写 OCR）能在库中精确匹配 → 姓名、班级一律采用库内信息（手写识别不准也无妨）；
      *  2. 考号没对上但识别出的姓名在库中唯一 → 用库内记录回填考号与班级（手写考号识别错位的兜底）；
-     *  3. 都对不上 → 保持识别结果，随后自动登记为新考生。
-     * 失败不影响阅卷主流程。
+     *  3. 都对不上 → 保持识别结果并标记「不在考生库」，由人工修正（不再自动登记新考生）。
+     * @return 是否命中考生库
      */
-    private void matchStudentLibrary(GradeSheet gs) {
+    private boolean matchStudentLibrary(GradeSheet gs) {
         if (gs == null) {
-            return;
+            return false;
         }
         try {
             String no = gs.getStudentNo() == null ? "" : gs.getStudentNo().trim();
@@ -1267,7 +1278,7 @@ public class GradingService {
                     if (s.getClassName() != null) {
                         gs.setClassName(s.getClassName());
                     }
-                    return;
+                    return true;
                 }
             }
             Student byName = studentService.matchByName(gs.getStudentName());
@@ -1278,10 +1289,12 @@ public class GradingService {
                 if (byName.getClassName() != null) {
                     gs.setClassName(byName.getClassName());
                 }
+                return true;
             }
         } catch (Exception e) {
             log.warn("考生库核对失败（不影响阅卷）: {}", e.getMessage());
         }
+        return false;
     }
 
     /** 修改阅卷记录的学号/班级/姓名：三者允许人工更正，更正后三者一致的记录在阅卷统计时会被合并为一条成绩 */
