@@ -1349,6 +1349,7 @@ public class GradingService {
                     m.put("studentNo", gs.getStudentNo());
                     m.put("studentName", gs.getStudentName());
                     m.put("className", gs.getClassName());
+                    m.put("qNo", d.get("qNo"));
                     m.put("verdict", d.get("verdict"));
                     m.put("studentAnswer", d.get("studentAnswer"));
                     m.put("gotScore", got);

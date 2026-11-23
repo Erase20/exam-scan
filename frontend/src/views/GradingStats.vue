@@ -181,7 +181,8 @@
           </el-button>
         </div>
         <div v-if="!paperId" class="muted" style="padding:8px 0">请先在上方选择试卷，再查看错题统计</div>
-        <el-table v-else :data="wrongQs" v-loading="wrongQLoading" size="small" border max-height="420" row-key="paperItemId">
+        <el-table v-else :data="wrongQs" v-loading="wrongQLoading" size="small" border max-height="420"
+                  row-key="paperItemId" @selection-change="s => pickedWrong = s">
           <el-table-column type="expand">
             <template #default="{ row }">
               <div style="padding:4px 12px 8px">
