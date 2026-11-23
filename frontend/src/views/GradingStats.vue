@@ -170,42 +170,69 @@
         </el-table>
       </div>
 
-      <!-- 按题查错 -->
+      <!-- 错题统计：按出错率降序，可勾选错题重新组卷 -->
       <div class="page-card">
         <div class="card-head">
-          <h3>按题查错</h3>
-          <span>选择题目，查看该题失分的考生名单</span>
+          <h3>错题统计</h3>
+          <span>按出错率由高到低；点行首展开失分考生名单</span>
+          <el-button type="primary" size="small" style="margin-left:auto"
+                     :disabled="!pickedWrong.length" @click="openRebuild">
+            错题重新组卷（{{ pickedWrong.length }}）
+          </el-button>
         </div>
-        <el-form inline>
-          <el-form-item label="题目">
-            <el-select v-model="wrongItemId" filterable style="width:400px" placeholder="选择题目">
-              <el-option v-for="q in paperQuestions" :key="q.item.id"
-                         :label="`第${q.no}题（${q.item.sectionName}）${q.brief}`" :value="q.item.id" />
-            </el-select>
-          </el-form-item>
-          <el-form-item>
-            <el-button type="primary" @click="loadWrong" :loading="wrongLoading"
-                       :disabled="!wrongItemId">查询失分考生</el-button>
-          </el-form-item>
-        </el-form>
-        <el-table v-if="wrongList.length" :data="wrongList" size="small" border max-height="320">
-          <el-table-column prop="className" label="班级" min-width="110" />
-          <el-table-column prop="studentName" label="姓名" min-width="100" />
-          <el-table-column prop="studentNo" label="考号" min-width="120">
-            <template #default="{ row }">{{ row.studentNo || '—' }}</template>
-          </el-table-column>
-          <el-table-column label="该题得分" width="130" align="center">
+        <div v-if="!paperId" class="muted" style="padding:8px 0">请先在上方选择试卷，再查看错题统计</div>
+        <el-table v-else :data="wrongQs" v-loading="wrongQLoading" size="small" border max-height="420" row-key="paperItemId">
+          <el-table-column type="expand">
             <template #default="{ row }">
-              <span :class="{ 'score-blue': row.gotScore > 0 }">{{ fmt(row.gotScore) }} / {{ fmt(row.fullScore) }}</span>
+              <div style="padding:4px 12px 8px">
+                <el-table v-if="row.wrongStudents.length" :data="row.wrongStudents" size="small" border>
+                  <el-table-column prop="className" label="班级" min-width="100" />
+                  <el-table-column prop="studentName" label="姓名" min-width="90" />
+                  <el-table-column prop="studentNo" label="考号" min-width="110">
+                    <template #default="{ r }">{{ r.studentNo || '—' }}</template>
+                  </el-table-column>
+                  <el-table-column label="判定" width="80" align="center">
+                    <template #default="{ r }">
+                      <el-tag size="small" :type="verdictTag(r.verdict)">{{ verdictLabel(r.verdict) }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="作答" min-width="120" show-overflow-tooltip>
+                    <template #default="{ r }">{{ r.studentAnswer || '—' }}</template>
+                  </el-table-column>
+                  <el-table-column label="该题得分" width="100" align="center">
+                    <template #default="{ r }">{{ fmt(r.gotScore) }} / {{ fmt(r.fullScore) }}</template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="90" align="center">
+                    <template #default="{ r }">
+                      <el-button link type="primary" size="small" @click="openGradeDetail({ id: r.gradeId })">看答卷</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <el-empty v-else description="该题没有失分考生" :image-size="50" />
+              </div>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="100" align="center">
+          <el-table-column type="selection" width="42" :selectable="row => !!row.questionId" />
+          <el-table-column label="题号" width="70" align="center">
+            <template #default="{ row }">{{ row.qNo }}</template>
+          </el-table-column>
+          <el-table-column prop="sectionName" label="大题" min-width="110" />
+          <el-table-column label="题型" width="90" align="center">
+            <template #default="{ row }"><el-tag size="small">{{ typeLabel(row.qType) }}</el-tag></template>
+          </el-table-column>
+          <el-table-column label="分值" width="70" align="center">
+            <template #default="{ row }">{{ fmt(row.score) }}</template>
+          </el-table-column>
+          <el-table-column label="出错率" width="180" align="center">
             <template #default="{ row }">
-              <el-button link type="primary" size="small" @click="openGradeDetail({ id: row.gradeId })">看答卷</el-button>
+              <el-progress :percentage="row.wrongRate" :stroke-width="12"
+                           :color="row.wrongRate >= 60 ? '#F56C6C' : row.wrongRate >= 30 ? '#E6A23C' : '#67C23A'" />
             </template>
+          </el-table-column>
+          <el-table-column label="失分人数" width="100" align="center">
+            <template #default="{ row }">{{ row.wrongCount }} / {{ row.answered }}</template>
           </el-table-column>
         </el-table>
-        <el-empty v-else-if="wrongSearched" description="该题没有失分考生（或该批记录无逐题明细）" :image-size="60" />
       </div>
     </template>
 
@@ -277,6 +304,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api'
 import { Q_TYPE_LABELS } from '../api'
 import BarChart from '../components/BarChart.vue'
@@ -366,53 +394,56 @@ async function load() {
   } finally {
     loading.value = false
   }
-  loadQuestions()
+  loadWrongQuestions()
 }
 
-// ---------------- 按题查错 ----------------
+// ---------------- 错题统计（按出错率降序）+ 错题重新组卷 ----------------
 
-const paperQuestions = ref([])
-const wrongItemId = ref(null)
-const wrongList = ref([])
-const wrongLoading = ref(false)
-const wrongSearched = ref(false)
+const typeLabel = t => Q_TYPE_LABELS[t] || t
+const wrongQs = ref([])
+const wrongQLoading = ref(false)
+const pickedWrong = ref([])
 
-/** 拉取试卷题目列表，供按题查错下拉选择（卷内题号按大题内顺序重编） */
-async function loadQuestions() {
-  wrongItemId.value = null
-  wrongList.value = []
-  wrongSearched.value = false
+/** 聚合本场考试每题的失分人数与出错率（后端按出错率降序返回） */
+async function loadWrongQuestions() {
+  pickedWrong.value = []
   if (!paperId.value) {
-    paperQuestions.value = []
+    wrongQs.value = []
     return
   }
-  const d = await http.get(`/paper/${paperId.value}`).catch(() => null)
-  let no = 0
-  let prev = null
-  paperQuestions.value = (d?.items || []).map(r => {
-    if (r.item.sectionNo !== prev) {
-      prev = r.item.sectionNo
-      no = 1
-    } else {
-      no++
-    }
-    const stem = String(r.question?.stem || '').replace(/\s+/g, ' ')
-    return { item: r.item, no, brief: stem.length > 26 ? stem.slice(0, 26) + '…' : stem }
-  })
+  wrongQLoading.value = true
+  try {
+    wrongQs.value = await http.get('/grading/wrong-questions', { params: { paperId: paperId.value } })
+  } catch {
+    wrongQs.value = []
+  } finally {
+    wrongQLoading.value = false
+  }
 }
 
-async function loadWrong() {
-  if (!paperId.value || !wrongItemId.value) return
-  wrongLoading.value = true
+/** 把勾选的错题重新组卷（新建「错题重练」试卷，题目按题型自动归入大题） */
+async function openRebuild() {
+  const qids = [...new Set(pickedWrong.value.map(w => w.questionId).filter(Boolean))]
+  if (!qids.length) return
   try {
-    wrongList.value = await http.get('/grading/wrong-students', {
-      params: { paperId: paperId.value, paperItemId: wrongItemId.value },
+    const { value } = await ElMessageBox.prompt(
+      `已选 ${qids.length} 道错题，将新建试卷并按题型自动归入大题（重复题自动跳过）`,
+      '错题重新组卷',
+      {
+        inputValue: `${stats.value?.paper?.title || '考试'}错题重练`,
+        inputValidator: v => (v && v.trim() ? true : '请输入试卷标题'),
+        confirmButtonText: '创建试卷',
+      })
+    const r = await http.post('/paper/add-questions', {
+      questionIds: qids,
+      newTitle: value.trim(),
+      newSubject: stats.value?.paper?.subject || null,
+      newGrade: stats.value?.paper?.grade || null,
+      newDuration: 45,
     })
-  } catch {
-    wrongList.value = []
-  } finally {
-    wrongLoading.value = false
-    wrongSearched.value = true
+    ElMessage.success(`已创建试卷「${r.paperTitle}」：收入 ${r.added} 道错题${r.skipped ? `，跳过重复 ${r.skipped} 道` : ''}`)
+  } catch (e) {
+    if (e !== 'cancel') { /* 非 ESC/取消的错误由拦截器提示 */ }
   }
 }
 

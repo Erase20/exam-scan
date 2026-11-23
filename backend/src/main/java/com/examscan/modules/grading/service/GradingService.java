@@ -33,6 +33,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.stream.Collectors;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -1249,6 +1250,151 @@ public class GradingService {
         }
         try {
             return new BigDecimal(String.valueOf(o));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 错题统计：聚合该试卷全部阅卷记录的逐题明细，按题统计失分人数与出错率，
+     * 按出错率由高到低返回；每题附失分考生名单（含判分与作答），供错题重新组卷。
+     * 同一考生（考号+班级+姓名一致）的多条记录只计最高分那条，与阅卷统计口径一致。
+     */
+    public List<Map<String, Object>> wrongQuestions(Long paperId) {
+        Paper paper = paperMapper.selectById(paperId);
+        if (paper == null) {
+            throw new BizException("试卷不存在");
+        }
+        List<PaperItem> items = itemMapper.selectList(new LambdaQueryWrapper<PaperItem>()
+                .eq(PaperItem::getPaperId, paperId)
+                .orderByAsc(PaperItem::getId));
+        if (items.isEmpty()) {
+            throw new BizException("该试卷没有题目");
+        }
+        List<GradeSheet> sheets = gradeSheetMapper.selectList(new LambdaQueryWrapper<GradeSheet>()
+                .eq(GradeSheet::getPaperId, paperId)
+                .orderByAsc(GradeSheet::getId));
+        // 同一考生多条记录只保留总分最高的一条
+        Map<String, GradeSheet> merged = new LinkedHashMap<>();
+        int unknown = 0;
+        for (GradeSheet gs : sheets) {
+            String key = identityKey(gs);
+            if (key == null) {
+                key = "__raw__" + (gs.getId() == null ? unknown++ : gs.getId());
+            }
+            GradeSheet cur = merged.get(key);
+            if (cur == null || total(gs).compareTo(total(cur)) > 0) {
+                merged.put(key, gs);
+            }
+        }
+
+        Map<Long, Integer> answered = new HashMap<>();
+        Map<Long, List<Map<String, Object>>> wrongStudents = new HashMap<>();
+        Map<Long, String> qNos = new HashMap<>();
+        Set<Long> itemIds = items.stream().map(PaperItem::getId).collect(Collectors.toSet());
+        for (GradeSheet gs : merged.values()) {
+            List<Map<String, Object>> details = null;
+            if (gs.getDetailJson() != null && !gs.getDetailJson().isBlank()) {
+                try {
+                    details = json.readValue(gs.getDetailJson(), new TypeReference<List<Map<String, Object>>>() {
+                    });
+                } catch (Exception e) {
+                    log.warn("错题统计解析明细失败 gradeId={}: {}", gs.getId(), e.getMessage());
+                }
+            }
+            // 没有明细的记录（旧数据/截图模式）不参与逐题统计，只影响总人数
+            if (details == null) {
+                continue;
+            }
+            for (Map<String, Object> d : details) {
+                Long itemId = toLong(d.get("paperItemId"));
+                if (itemId == null || !itemIds.contains(itemId)) {
+                    continue;
+                }
+                Object qNo = d.get("qNo");
+                if (qNo != null) {
+                    qNos.putIfAbsent(itemId, String.valueOf(qNo));
+                }
+                BigDecimal got = toScore(d.get("gotScore"));
+                if (got == null) {
+                    got = BigDecimal.ZERO;
+                }
+                BigDecimal full = toScore(d.get("score"));
+                if (full == null || full.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                answered.merge(itemId, 1, Integer::sum);
+                if (got.compareTo(full) < 0) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("gradeId", gs.getId());
+                    m.put("studentNo", gs.getStudentNo());
+                    m.put("studentName", gs.getStudentName());
+                    m.put("className", gs.getClassName());
+                    m.put("verdict", d.get("verdict"));
+                    m.put("studentAnswer", d.get("studentAnswer"));
+                    m.put("gotScore", got);
+                    m.put("fullScore", full);
+                    wrongStudents.computeIfAbsent(itemId, k -> new ArrayList<>()).add(m);
+                }
+            }
+        }
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (PaperItem it : items) {
+            int answeredCnt = answered.getOrDefault(it.getId(), 0);
+            List<Map<String, Object>> wrong = wrongStudents.getOrDefault(it.getId(), List.of());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("paperItemId", it.getId());
+            m.put("questionId", it.getQuestionId());
+            // qNo 存于明细中（PaperItem 无此字段），无明细时退化为卷内顺序号
+            m.put("qNo", qNos.getOrDefault(it.getId(), String.valueOf(it.getSortNo() == null ? "" : it.getSortNo())));
+            m.put("sectionName", it.getSectionName());
+            m.put("qType", it.getQType());
+            m.put("score", it.getScore());
+            m.put("answered", answeredCnt);
+            m.put("wrongCount", wrong.size());
+            m.put("wrongRate", answeredCnt == 0 ? 0
+                    : (int) Math.round(wrong.size() * 100.0 / answeredCnt));
+            m.put("wrongStudents", wrong);
+            out.add(m);
+        }
+        // 出错率高在前；相同时失分人数多在前
+        out.sort((a, b) -> {
+            int r = Integer.compare((int) b.get("wrongRate"), (int) a.get("wrongRate"));
+            return r != 0 ? r : Integer.compare((int) b.get("wrongCount"), (int) a.get("wrongCount"));
+        });
+        return out;
+    }
+
+    /** 考生身份合并键（考号+班级+姓名，三者齐全才算同一考生） */
+    private static String identityKey(GradeSheet gs) {
+        String s = norm(gs.getStudentNo());
+        String c = norm(gs.getClassName());
+        String n = norm(gs.getStudentName());
+        if (s == null || c == null || n == null || "未识别".equals(s) || "待确认".equals(n) || "待确认".equals(c)) {
+            return null;
+        }
+        return s + "|" + c + "|" + n;
+    }
+
+    private static String norm(String v) {
+        if (v == null) {
+            return null;
+        }
+        String t = v.trim();
+        return t.isEmpty() ? null : t;
+    }
+
+    private static BigDecimal total(GradeSheet gs) {
+        return gs.getTotalScore() == null ? BigDecimal.ZERO : gs.getTotalScore();
+    }
+
+    private static Long toLong(Object o) {
+        if (o == null) {
+            return null;
+        }
+        try {
+            return Long.parseLong(String.valueOf(o));
         } catch (Exception e) {
             return null;
         }

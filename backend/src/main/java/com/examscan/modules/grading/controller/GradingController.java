@@ -76,6 +76,12 @@ public class GradingController {
         return R.ok(service.wrongStudents(paperId, paperItemId));
     }
 
+    /** 错题统计：按出错率由高到低，每题附失分考生名单，供错题重新组卷 */
+    @GetMapping("/wrong-questions")
+    public R<List<Map<String, Object>>> wrongQuestions(@RequestParam Long paperId) {
+        return R.ok(service.wrongQuestions(paperId));
+    }
+
     /** 答题卡原图 */
     @GetMapping("/{id}/image")
     public ResponseEntity<byte[]> image(@PathVariable Long id) {
