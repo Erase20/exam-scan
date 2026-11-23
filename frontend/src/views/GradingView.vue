@@ -386,11 +386,22 @@ async function openMark(row) {
   markLoading.value = true
   markData.value = null
   try {
-    const d = await http.get(`/grading/${row.id}`)
+    let d = await http.get(`/grading/${row.id}`)
+    // 旧记录没有校正图：自动补生成一次（读原图按布局重新透视校正，约 1~3 秒）
     if (!d.normImage) {
-      ElMessage.info('该记录没有校正图（旧数据），请重新扫描阅卷后使用标记功能')
-      markVisible.value = false
-      return
+      try {
+        await http.post(`/grading/${row.id}/regen-norm`)
+        d = await http.get(`/grading/${row.id}`)
+      } catch {
+        ElMessage.warning('校正图生成失败（旧记录可能缺少原图或答题卡模板），无法显示对错标记')
+        markVisible.value = false
+        return
+      }
+      if (!d.normImage) {
+        ElMessage.warning('该记录没有原图，无法生成校正图')
+        markVisible.value = false
+        return
+      }
     }
     const verdictMap = {}
     for (const x of d.details || []) verdictMap[x.paperItemId] = x.verdict

@@ -1523,6 +1523,51 @@ public class GradingService {
         }
     }
 
+    /**
+     * 为历史记录补生成透视校正整图（原图对错标记用）：
+     * 读原图 → 按答题卡布局做透视校正 → 存 grade/{id}-norm.jpg。已有则直接返回成功。
+     */
+    public boolean regenNorm(Long id) {
+        GradeSheet gs = gradeSheetMapper.selectById(id);
+        if (gs == null) {
+            throw new BizException("阅卷记录不存在");
+        }
+        if (normImageExists(id)) {
+            return true;
+        }
+        byte[] bytes = loadImage(id);
+        if (bytes == null) {
+            throw new BizException("该记录没有保存原图，无法生成校正图");
+        }
+        if (gs.getSheetId() == null) {
+            throw new BizException("该记录没有关联答题卡模板，无法生成校正图");
+        }
+        try {
+            BufferedImage img = ImageIO.read(new ByteArrayInputStream(bytes));
+            if (img == null) {
+                throw new BizException("原图读取失败");
+            }
+            AnswerSheet sheet = sheetMapper.selectById(gs.getSheetId());
+            if (sheet == null || sheet.getLayoutJson() == null) {
+                throw new BizException("答题卡模板布局缺失，无法生成校正图");
+            }
+            Map<?, ?> layout = json.readValue(sheet.getLayoutJson(), Map.class);
+            int pageW = num(layout.get("pageWidth"), 2480);
+            int pageH = num(layout.get("pageHeight"), 3508);
+            BufferedImage norm = PerspectiveCorrector.normalize(img, pageW, pageH, layout);
+            Path dir = Paths.get(storageRoot, "grade");
+            Files.createDirectories(dir);
+            ImageIO.write(norm, "jpg", dir.resolve(id + "-norm.jpg").toFile());
+            log.info("记录 {} 已补生成校正图", id);
+            return true;
+        } catch (BizException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("补生成校正图失败 {}: {}", id, e.getMessage());
+            throw new BizException("生成校正图失败，请重试");
+        }
+    }
+
     private boolean normImageExists(Long id) {
         try {
             return Files.exists(Paths.get(storageRoot, "grade", id + "-norm.jpg"));

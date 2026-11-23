@@ -102,6 +102,12 @@ public class GradingController {
         return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(bytes);
     }
 
+    /** 为历史记录补生成校正图（原图标记功能首次使用时自动调用） */
+    @PostMapping("/{id}/regen-norm")
+    public R<Boolean> regenNorm(@PathVariable Long id) {
+        return R.ok(service.regenNorm(id));
+    }
+
     /** 删除阅卷记录（单条/批量，body 传 ids） */
     @DeleteMapping("/{id}")
     public R<Map<String, Object>> delete(@PathVariable Long id) {
