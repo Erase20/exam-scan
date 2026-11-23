@@ -92,6 +92,16 @@ public class GradingController {
         return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(bytes);
     }
 
+    /** 透视校正整图（与每题作答区坐标同系，原图对错标记用） */
+    @GetMapping("/{id}/norm")
+    public ResponseEntity<byte[]> normImage(@PathVariable Long id) {
+        byte[] bytes = service.loadNormImage(id);
+        if (bytes == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).body(bytes);
+    }
+
     /** 删除阅卷记录（单条/批量，body 传 ids） */
     @DeleteMapping("/{id}")
     public R<Map<String, Object>> delete(@PathVariable Long id) {

@@ -161,10 +161,13 @@
         </el-table-column>
         <el-table-column label="作答区截图" width="100">
           <template #default="{ row }">
-            <el-popover v-if="row.cellCrop" placement="left" :width="320" trigger="hover" :show-after="80" :hide-after="120">
+            <el-popover v-if="row.cellCrop" placement="left" :width="340" trigger="hover" :show-after="80" :hide-after="120">
               <template #reference>
                 <el-button size="small" text type="primary" style="padding:0">看截图</el-button>
               </template>
+              <div v-if="resultStem(row.paperItemId)" class="mark-stem">
+                <b>题干：</b>{{ resultStem(row.paperItemId) }}
+              </div>
               <el-image :src="row.cellCrop" style="width:100%"
                         :preview-src-list="[row.cellCrop]" preview-teleported />
             </el-popover>
@@ -265,9 +268,11 @@
         </el-table-column>
         <el-table-column label="原图" width="70">
           <template #default="{ row }">
-            <el-image v-if="row.imagePath" :src="`/api/grading/${row.id}/image`"
-                      :preview-src-list="[`/api/grading/${row.id}/image`]" preview-teleported fit="cover"
-                      style="width:42px;height:56px;border-radius:3px;cursor:zoom-in" />
+            <el-tooltip v-if="row.imagePath" content="点击查看答题卡原图（含对错标记）" placement="top">
+              <el-image v-if="row.imagePath" :src="`/api/grading/${row.id}/image`" fit="cover"
+                        style="width:42px;height:56px;border-radius:3px;cursor:zoom-in"
+                        @click="openMark(row)" />
+            </el-tooltip>
             <span v-else style="color:#c0c4cc;font-size:12px">无</span>
           </template>
         </el-table-column>
@@ -279,6 +284,26 @@
         </el-table-column>
       </el-table>
     </div>
+
+    <!-- 原图对错标记：校正整图上叠加失分题红色框 -->
+    <el-dialog v-model="markVisible" width="86%" top="2vh" :title="markData ? `答题卡对错标记：${markData.name}` : '答题卡对错标记'">
+      <div v-loading="markLoading" class="mark-wrap">
+        <template v-if="markData">
+          <div class="mark-img-box">
+            <img :src="markData.normImage" class="mark-img" alt="答题卡">
+            <div v-for="(m, i) in markMarks" :key="i" class="mark-box" :class="{ 'mark-warn': m.text === '待判' }"
+                 :style="{ left: m.left + '%', top: m.top + '%', width: m.width + '%', height: m.height + '%' }">
+              <span class="mark-tag">{{ m.text }}</span>
+            </div>
+          </div>
+          <div class="mark-legend">
+            <span class="mark-legend-item"><i class="mark-dot wrong" /> 失分题（错/空白/多涂）</span>
+            <span class="mark-legend-item"><i class="mark-dot warn" /> 待人工判分</span>
+            <span style="color:#909399;font-size:12px">共 {{ markMarks.length }} 处标记</span>
+          </div>
+        </template>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -314,6 +339,75 @@ const onNarrowResize = () => { narrow.value = window.innerWidth <= 768 }
 const typeLabel = t => Q_TYPE_LABELS[t] || t
 const verdictLabel = v => ({ CORRECT: '正确', WRONG: '错误', BLANK: '未作答', MULTI: '多涂', MANUAL: '待人工' }[v] || v)
 const verdictType = v => ({ CORRECT: 'success', WRONG: 'danger', BLANK: 'info', MULTI: 'warning', MANUAL: 'warning' }[v] || 'info')
+
+// ---------- 题干映射（答卷详情/看截图时显示题干） ----------
+const stemMap = ref({})       // paperItemId -> 题干
+let stemPaperId = null
+async function ensureStems(paperId) {
+  if (!paperId || stemPaperId === paperId) return
+  stemPaperId = paperId
+  stemMap.value = {}
+  const d = await http.get(`/paper/${paperId}`).catch(() => null)
+  const map = {}
+  for (const r of d?.items || []) {
+    map[r.item.id] = String(r.question?.stem || '').replace(/\s+/g, ' ').slice(0, 220)
+  }
+  stemMap.value = map
+}
+const resultStem = p => stemMap.value[p] || ''
+
+// ---------- 原图对错标记 ----------
+const markVisible = ref(false)
+const markLoading = ref(false)
+const markData = ref(null)    // { normImage, pageWidth, pageHeight, cells, verdictMap }
+const markMarks = computed(() => {
+  const d = markData.value
+  if (!d) return []
+  const wrongTypes = { WRONG: '错', BLANK: '空', MULTI: '多涂', MANUAL: '待判' }
+  const out = []
+  for (const c of d.cells || []) {
+    const v = d.verdictMap[c.paperItemId]
+    if (!v || v === 'CORRECT') continue
+    const bx = c.box || {}
+    out.push({
+      qNo: c.qNo,
+      text: wrongTypes[v] || v,
+      left: ((bx.x || 0) / d.pageWidth) * 100,
+      top: ((bx.y || 0) / d.pageHeight) * 100,
+      width: ((bx.w || 0) / d.pageWidth) * 100,
+      height: ((bx.h || 0) / d.pageHeight) * 100,
+    })
+  }
+  return out
+})
+
+async function openMark(row) {
+  markVisible.value = true
+  markLoading.value = true
+  markData.value = null
+  try {
+    const d = await http.get(`/grading/${row.id}`)
+    if (!d.normImage) {
+      ElMessage.info('该记录没有校正图（旧数据），请重新扫描阅卷后使用标记功能')
+      markVisible.value = false
+      return
+    }
+    const verdictMap = {}
+    for (const x of d.details || []) verdictMap[x.paperItemId] = x.verdict
+    markData.value = {
+      normImage: d.normImage,
+      pageWidth: d.pageWidth || 2480,
+      pageHeight: d.pageHeight || 3508,
+      cells: d.cells || [],
+      verdictMap,
+      name: `${row.studentName || '待确认'}（${row.studentNo || '考号未识别'}）`,
+    }
+  } catch {
+    markVisible.value = false
+  } finally {
+    markLoading.value = false
+  }
+}
 
 /** 得分框回车：焦点跳到下一题，并短暂显示下一题学生作答情况供打分参考 */
 const scoreRefs = []
@@ -409,13 +503,14 @@ async function viewRecord(id) {
     const cnt = { CORRECT: 0, WRONG: 0, BLANK: 0, MULTI: 0 }
     for (const x of d.details || []) cnt[x.verdict] = (cnt[x.verdict] || 0) + 1
     result.value = {
-      gradeId: g.id, mode: g.mode, studentNo: g.studentNo, studentName: g.studentName, className: g.className,
+      gradeId: g.id, mode: g.mode, paperId: g.paperId, studentNo: g.studentNo, studentName: g.studentName, className: g.className,
       nameCrop: d.nameCrop, classCrop: d.classCrop, idCrop: d.idCrop, infoCrop: d.infoCrop,
       objectiveScore: g.objectiveScore,
       totalScore: g.totalScore, fullScore: g.fullScore, status: g.status,
       correct: cnt.CORRECT, wrong: cnt.WRONG, blank: cnt.BLANK, multi: cnt.MULTI,
       details: d.details || [],
     }
+    ensureStems(g.paperId)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (e) { /* 拦截器已提示 */ }
 }
@@ -497,13 +592,14 @@ async function showMobileResult(id) {
     const cnt = { CORRECT: 0, WRONG: 0, BLANK: 0, MULTI: 0 }
     for (const x of d.details || []) cnt[x.verdict] = (cnt[x.verdict] || 0) + 1
     result.value = {
-      gradeId: g.id, mode: g.mode, studentNo: g.studentNo, studentName: g.studentName, className: g.className,
+      gradeId: g.id, mode: g.mode, paperId: g.paperId, studentNo: g.studentNo, studentName: g.studentName, className: g.className,
       nameCrop: d.nameCrop, classCrop: d.classCrop, idCrop: d.idCrop, infoCrop: d.infoCrop,
       objectiveScore: g.objectiveScore, status: g.status,
       totalScore: g.totalScore, fullScore: g.fullScore,
       correct: cnt.CORRECT, wrong: cnt.WRONG, blank: cnt.BLANK, multi: cnt.MULTI,
       details: d.details || [],
     }
+    ensureStems(g.paperId)
     ElMessage.success(`📱 新答题卡已出分：考号 ${g.studentNo || '未识别'}，总分 ${g.totalScore} / ${g.fullScore}`)
   } catch (e) {}
 }
@@ -712,6 +808,28 @@ onBeforeUnmount(() => {
   border: 1px solid #d9ecff; border-radius: 4px; background: #fff; cursor: zoom-in;
 }
 .hint-ocr { width: 210px; max-height: 260px; overflow: auto; background: #fff; border-radius: 4px; padding: 6px 8px; }
+
+/* 原图对错标记 */
+.mark-stem { margin-bottom: 8px; padding: 6px 10px; background: #f5f7fa; border-left: 3px solid #409EFF; border-radius: 4px; font-size: 13px; line-height: 1.6; }
+.mark-wrap { min-height: 200px; }
+.mark-img-box { position: relative; display: inline-block; max-width: 100%; font-size: 0; }
+.mark-img { max-width: 100%; max-height: 72vh; display: block; border: 1px solid #eee; border-radius: 4px; }
+.mark-box {
+  position: absolute; border: 2px solid #F56C6C; background: rgba(245, 108, 108, .12);
+  border-radius: 3px; pointer-events: none;
+}
+.mark-box.mark-warn { border-color: #E6A23C; background: rgba(230, 162, 60, .12); }
+.mark-tag {
+  position: absolute; top: 0; left: 0; transform: translateY(-100%);
+  background: #F56C6C; color: #fff; font-size: 12px; line-height: 1;
+  padding: 3px 6px; border-radius: 3px 3px 0 0; font-weight: 600;
+}
+.mark-box.mark-warn .mark-tag { background: #E6A23C; }
+.mark-legend { margin-top: 10px; display: flex; gap: 18px; align-items: center; font-size: 13px; }
+.mark-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.mark-dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.mark-dot.wrong { background: rgba(245, 108, 108, .3); border: 2px solid #F56C6C; }
+.mark-dot.warn { background: rgba(230, 162, 60, .3); border: 2px solid #E6A23C; }
 .hint-ocr-title { font-weight: 600; color: #303133; margin-bottom: 4px; }
 .hint-ocr-text { color: #606266; font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
 </style>

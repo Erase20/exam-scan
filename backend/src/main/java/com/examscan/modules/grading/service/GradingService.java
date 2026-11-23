@@ -422,6 +422,17 @@ public class GradingService {
                 log.warn("答题卡原图保存失败: {}", e.getMessage());
             }
         }
+        // 保存透视校正后的整图（与 layout box 同坐标系）：答卷详情在原图上叠加对错标记用
+        try {
+            Path dir = Paths.get(storageRoot, "grade");
+            Files.createDirectories(dir);
+            Path normPath = dir.resolve(gs.getId() + "-norm.jpg");
+            if (!Files.exists(normPath)) {
+                ImageIO.write(norm, "jpg", normPath.toFile());
+            }
+        } catch (Exception e) {
+            log.warn("校正图保存失败（不影响阅卷）: {}", e.getMessage());
+        }
 
         // 姓名/班级/学号：保存选区截图供人工辨认（识别结果已由每页信息区 OCR 得出）
         try {
@@ -692,6 +703,14 @@ public class GradingService {
             }
         }
         out.put("inLibrary", inLib);
+        // 原图对错标记：校正整图 URL + 每题在整卡上的位置（与校正图同坐标系）
+        if (normImageExists(gs.getId())) {
+            out.put("normImage", "/api/grading/" + gs.getId() + "/norm");
+            Map<String, Object> marks = layoutMarks(gs.getSheetId());
+            out.put("pageWidth", marks.get("pageWidth"));
+            out.put("pageHeight", marks.get("pageHeight"));
+            out.put("cells", marks.get("cells"));
+        }
         try {
             out.put("details", json.readValue(gs.getDetailJson() == null ? "[]" : gs.getDetailJson(), List.class));
         } catch (Exception e) {
@@ -1492,6 +1511,66 @@ public class GradingService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** 读取透视校正整图字节（原图对错标记用）；不存在返回 null */
+    public byte[] loadNormImage(Long id) {
+        try {
+            Path p = Paths.get(storageRoot, "grade", id + "-norm.jpg");
+            return Files.exists(p) ? Files.readAllBytes(p) : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private boolean normImageExists(Long id) {
+        try {
+            return Files.exists(Paths.get(storageRoot, "grade", id + "-norm.jpg"));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 从答题卡布局中提取每题作答区在整卡上的位置（300dpi 像素坐标），
+     * 供前端把对错标记按比例叠加到校正整图上。
+     */
+    private Map<String, Object> layoutMarks(Long sheetId) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("pageWidth", 2480);
+        out.put("pageHeight", 3508);
+        List<Map<String, Object>> cells = new ArrayList<>();
+        if (sheetId != null) {
+            try {
+                AnswerSheet sheet = sheetMapper.selectById(sheetId);
+                if (sheet != null && sheet.getLayoutJson() != null) {
+                    Map<?, ?> layout = json.readValue(sheet.getLayoutJson(), Map.class);
+                    out.put("pageWidth", num(layout.get("pageWidth"), 2480));
+                    out.put("pageHeight", num(layout.get("pageHeight"), 3508));
+                    Object rawCells = layout.get("cells");
+                    if (rawCells instanceof List<?> list) {
+                        for (Object o : list) {
+                            if (o instanceof Map<?, ?> c) {
+                                Map<String, Object> m = new LinkedHashMap<>();
+                                Object pid = c.get("paperItemId");
+                                if (pid == null || !(c.get("box") instanceof Map<?, ?> bx)) {
+                                    continue;
+                                }
+                                m.put("paperItemId", pid);
+                                m.put("qNo", c.get("qNo"));
+                                m.put("box", bx);
+                                cells.add(m);
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("答题卡布局解析失败（不返回标记）: {}", e.getMessage());
+                cells.clear();
+            }
+        }
+        out.put("cells", cells);
+        return out;
     }
 
     /** 删除阅卷记录（逻辑删除），并清理原图与姓名/班级选区截图 */

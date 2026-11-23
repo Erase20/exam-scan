@@ -204,7 +204,8 @@
                   </el-table-column>
                   <el-table-column label="操作" width="90" align="center">
                     <template #default="{ r }">
-                      <el-button link type="primary" size="small" @click="openGradeDetail({ id: r.gradeId })">看答卷</el-button>
+                      <el-button link type="primary" size="small"
+                                 @click="openGradeDetail({ id: r.gradeId }, r.qNo)">看答卷</el-button>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -287,9 +288,12 @@
 
         <div v-if="gdPicked && gdShowImg" class="gd-cell">
           <div class="gd-cell-head">
-            <span>第 {{ gdPicked.qNo }} 题作答截图</span>
+            <span>第 {{ gdPicked.qNo }} 题（{{ gdPicked.sectionName }}）</span>
             <el-button v-if="!isObjective(gdPicked.qType)" size="small" text type="primary"
                        @click="gdOcr" :loading="gdOcrLoading">OCR 识别文字</el-button>
+          </div>
+          <div v-if="gdStem" class="gd-stem">
+            <b>题干：</b>{{ gdStem }}
           </div>
           <img class="gd-cell-img" :src="`/api/grading/${gdGradeId}/cell/${gdPicked.paperItemId}`" alt="作答截图">
           <div v-if="gdOcrText !== null && gdOcrFor === gdPicked.paperItemId" class="gd-ocr-text">
@@ -403,10 +407,12 @@ const typeLabel = t => Q_TYPE_LABELS[t] || t
 const wrongQs = ref([])
 const wrongQLoading = ref(false)
 const pickedWrong = ref([])
+const stemMap = ref({})  // paperItemId -> 题干，答卷详情弹窗显示题干用
 
-/** 聚合本场考试每题的失分人数与出错率（后端按出错率降序返回） */
+/** 聚合本场考试每题的失分人数与出错率（后端按出错率降序返回），同时加载题目题干映射 */
 async function loadWrongQuestions() {
   pickedWrong.value = []
+  stemMap.value = {}
   if (!paperId.value) {
     wrongQs.value = []
     return
@@ -419,6 +425,12 @@ async function loadWrongQuestions() {
   } finally {
     wrongQLoading.value = false
   }
+  const d = await http.get(`/paper/${paperId.value}`).catch(() => null)
+  const map = {}
+  for (const r of d?.items || []) {
+    map[r.item.id] = String(r.question?.stem || '').replace(/\s+/g, ' ').slice(0, 220)
+  }
+  stemMap.value = map
 }
 
 /** 把勾选的错题重新组卷（新建「错题重练」试卷，题目按题型自动归入大题） */
@@ -461,6 +473,9 @@ const gdOcrText = ref(null)
 const gdOcrFor = ref(null)
 const gdOcrLoading = ref(false)
 
+/** 当前选中题的题干（从试卷题目映射取，无则不显示） */
+const gdStem = computed(() => (gdPicked.value && stemMap.value[gdPicked.value.paperItemId]) || '')
+
 async function openGradeDetail(row, targetQNo) {
   gdVisible.value = true
   gdLoading.value = true
@@ -494,12 +509,14 @@ async function openGradeDetail(row, targetQNo) {
   }
 }
 
-/** 弹窗表格滚动并高亮定位到指定题目行（弹窗渲染动画后执行） */
+/** 弹窗表格滚动并高亮定位到指定题目行（弹窗渲染动画后执行；限定最后打开的弹窗，避免定位到页面表格） */
 async function scrollToDetailRow(pick) {
   await nextTick()
   setTimeout(() => {
     try {
-      const wrap = document.querySelector('.el-dialog .el-table__body-wrapper')
+      const dialogs = document.querySelectorAll('.el-dialog')
+      const dlg = dialogs.length ? dialogs[dialogs.length - 1] : null
+      const wrap = dlg?.querySelector('.el-table__body-wrapper')
       if (!wrap) return
       const rows = wrap.querySelectorAll('tr.el-table__row')
       for (const tr of rows) {
@@ -627,6 +644,7 @@ onMounted(async () => {
 .gd-cell { margin-top: 14px; border-top: 1px dashed #ebeef5; padding-top: 10px; }
 .gd-cell-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
 .gd-cell-img { max-width: 100%; max-height: 320px; border: 1px solid #eee; border-radius: 4px; display: block; margin: 0 auto; }
+.gd-stem { margin: 6px 0 10px; padding: 8px 12px; background: #f5f7fa; border-left: 3px solid #409EFF; border-radius: 4px; font-size: 14px; line-height: 1.7; text-align: left; }
 .gd-ocr-text { margin-top: 8px; font-size: 13px; color: #67C23A; background: #f6ffed; padding: 6px 10px; border-radius: 4px; }
 
 @media (max-width: 768px) {
