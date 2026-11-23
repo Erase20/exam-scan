@@ -478,6 +478,10 @@ const gdOcrLoading = ref(false)
 const gdStem = computed(() => (gdPicked.value && stemMap.value[gdPicked.value.paperItemId]) || '')
 
 async function openGradeDetail(row, targetQNo) {
+  if (!row || !row.id) {
+    ElMessage.error('该记录缺少编号，无法打开答卷详情')
+    return
+  }
   gdVisible.value = true
   gdLoading.value = true
   gdGrade.value = null
@@ -488,6 +492,9 @@ async function openGradeDetail(row, targetQNo) {
   gdGradeId.value = row.id
   try {
     const d = await http.get(`/grading/${row.id}`)
+    if (!d || !d.grade) {
+      throw new Error('记录不存在或已被删除')
+    }
     gdGrade.value = d.grade
     gdDetail.value = d
     gdDetails.value = d.details || []
