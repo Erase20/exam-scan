@@ -291,15 +291,15 @@
         <template v-if="markData">
           <div class="mark-img-box">
             <img :src="markData.normImage" class="mark-img" alt="答题卡">
-            <div v-for="(m, i) in markMarks" :key="i" class="mark-box" :class="{ 'mark-warn': m.text === '待判' }"
+            <div v-for="(m, i) in markMarks" :key="i" class="mark-box" :class="{ 'mark-warn': m.warn }"
                  :style="{ left: m.left + '%', top: m.top + '%', width: m.width + '%', height: m.height + '%' }">
               <span class="mark-tag">{{ m.text }}</span>
             </div>
           </div>
           <div class="mark-legend">
-            <span class="mark-legend-item"><i class="mark-dot wrong" /> 失分题（错/空白/多涂）</span>
-            <span class="mark-legend-item"><i class="mark-dot warn" /> 待人工判分</span>
-            <span style="color:#909399;font-size:12px">共 {{ markMarks.length }} 处标记</span>
+            <span class="mark-legend-item"><i class="mark-dot wrong" /> 失分（错/空白/多涂/部分分）</span>
+            <span class="mark-legend-item"><i class="mark-dot warn" /> 待人工给分的主观题</span>
+            <span style="color:#909399;font-size:12px">共 {{ markMarks.length }} 处标记；改分保存后重新点开即为最新状态</span>
           </div>
         </template>
       </div>
@@ -363,15 +363,16 @@ const markData = ref(null)    // { normImage, pageWidth, pageHeight, cells, verd
 const markMarks = computed(() => {
   const d = markData.value
   if (!d) return []
-  const wrongTypes = { WRONG: '错', BLANK: '空', MULTI: '多涂', MANUAL: '待判' }
+  const texts = { WRONG: '错', BLANK: '空', MULTI: '多涂', MANUAL: '待判', PART: '部分分' }
   const out = []
   for (const c of d.cells || []) {
     const v = d.verdictMap[c.paperItemId]
-    if (!v || v === 'CORRECT') continue
+    if (!v || v === 'CORRECT' || v === 'DONE') continue
     const bx = c.box || {}
     out.push({
       qNo: c.qNo,
-      text: wrongTypes[v] || v,
+      text: texts[v] || v,
+      warn: v === 'MANUAL',
       left: ((bx.x || 0) / d.pageWidth) * 100,
       top: ((bx.y || 0) / d.pageHeight) * 100,
       width: ((bx.w || 0) / d.pageWidth) * 100,
@@ -403,8 +404,21 @@ async function openMark(row) {
         return
       }
     }
+    // 标记按「当前得分」计算，而不是识别时的原始判定：
+    // 判满分（含老师改满分）→ 不标；有得分但不满 → 红「部分分」；
+    // 没改过分的主观题 → 橙「待判」；错/空/多涂 → 红。改分保存后重新点开即为最新状态。
     const verdictMap = {}
-    for (const x of d.details || []) verdictMap[x.paperItemId] = x.verdict
+    for (const x of d.details || []) {
+      const g = Number(x.gotScore || 0)
+      const s = Number(x.score || 0)
+      let v = x.verdict
+      if (s > 0 && g >= s) {
+        v = 'DONE'
+      } else if (s > 0 && g > 0) {
+        v = 'PART'
+      }
+      verdictMap[x.paperItemId] = v
+    }
     markData.value = {
       normImage: d.normImage,
       pageWidth: d.pageWidth || 2480,
