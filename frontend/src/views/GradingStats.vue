@@ -244,9 +244,16 @@
       </el-empty>
     </div>
 
-    <!-- 考生答卷详情：逐题明细，错题高亮，点题号看该题作答截图 -->
-    <el-dialog v-model="gdVisible" width="900px" top="4vh"
-               :title="gdGrade ? `答卷详情：${gdGrade.studentName || '待确认'}（${gdGrade.studentNo || '考号未识别'}）` : '答卷详情'">
+    <!-- 考生答卷详情：逐题明细，错题高亮，点行切换查看该题作答截图 -->
+    <el-dialog v-model="gdVisible" :width="gdFull ? '98%' : '900px'" :top="gdFull ? '1vh' : '4vh'">
+      <template #header>
+        <div class="gd-dialog-head">
+          <span>{{ gdGrade ? `答卷详情：${gdGrade.studentName || '待确认'}（${gdGrade.studentNo || '考号未识别'}）` : '答卷详情' }}</span>
+          <el-button link type="primary" size="small" style="margin-left:12px" @click="gdFull = !gdFull">
+            {{ gdFull ? '还原' : '⤢ 最大化' }}
+          </el-button>
+        </div>
+      </template>
       <div v-loading="gdLoading">
         <el-alert v-if="gdDetail && gdDetail.inLibrary === false" type="warning" :closable="false"
                   style="margin-bottom:10px"
@@ -258,11 +265,10 @@
           <el-switch v-model="gdShowImg" active-text="显示作答截图" style="margin-left:auto" />
         </div>
         <el-table v-if="gdDetails.length" :data="gdDetails" size="small" border max-height="360"
-                  highlight-current-row :row-class-name="gdRowClass">
+                  highlight-current-row :row-class-name="gdRowClass"
+                  @row-click="r => gdPick(r)" style="cursor:pointer">
           <el-table-column label="题号" width="80" align="center">
-            <template #default="{ row }">
-              <el-link type="primary" :underline="false" @click="gdPick(row)">{{ row.qNo }}</el-link>
-            </template>
+            <template #default="{ row }">{{ row.qNo }}</template>
           </el-table-column>
           <el-table-column label="大题" min-width="110" class-name="col-optional">
             <template #default="{ row }">{{ row.sectionName }}</template>
@@ -463,6 +469,7 @@ async function openRebuild() {
 // ---------------- 答卷详情弹窗 ----------------
 
 const gdVisible = ref(false)
+const gdFull = ref(false)
 const gdLoading = ref(false)
 const gdGrade = ref(null)
 const gdDetail = ref(null)
@@ -647,6 +654,7 @@ onMounted(async () => {
 /* ---------- 答卷详情弹窗 ---------- */
 .gd-head { display: flex; gap: 24px; align-items: center; margin-bottom: 10px; font-size: 13px; color: #606266; }
 .gd-head b { color: #303133; }
+.gd-dialog-head { display: flex; align-items: center; font-size: 16px; font-weight: 600; }
 :deep(.gd-wrong-row > td.el-table__cell) { background-color: #fef0f0 !important; }
 :deep(.el-table__body tr.gd-wrong-row:hover > td.el-table__cell) { background-color: #fde2e2 !important; }
 .gd-cell { margin-top: 14px; border-top: 1px dashed #ebeef5; padding-top: 10px; }
