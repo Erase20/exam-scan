@@ -5,6 +5,10 @@
       <div class="toolbar">
         <el-input v-model="keyword" placeholder="搜索考号 / 姓名" clearable style="width:220px"
                   @keyup.enter="load" @clear="load" />
+        <el-select v-model="className" placeholder="按班级筛选" clearable filterable style="width:160px"
+                   @change="load">
+          <el-option v-for="c in classOptions" :key="c" :label="c" :value="c" />
+        </el-select>
         <el-button type="primary" @click="load">查询</el-button>
         <el-upload :show-file-list="false" :auto-upload="false" accept=".xlsx,.xls"
                    :on-change="onFileChange">
@@ -86,13 +90,20 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api'
 
 const router = useRouter()
 const rows = ref([]); const keyword = ref(''); const loading = ref(false)
+const className = ref('')          // 班级筛选（空=全部）
+let allClasses = []                // 班级选项缓存（从全量数据抽取，筛选后选项不缩窄）
+const classOptions = computed(() => {
+  const set = new Set(allClasses)
+  for (const r of rows.value) if (r.className) set.add(r.className)
+  return [...set].sort((a, b) => String(a).localeCompare(String(b), 'zh'))
+})
 const editVisible = ref(false); const saving = ref(false); const exporting = ref(false)
 const selected = ref([]); const batchDeleting = ref(false)
 const editForm = ref({ id: null, studentNo: '', name: '', className: '', grade: '' })
@@ -100,7 +111,16 @@ const editForm = ref({ id: null, studentNo: '', name: '', className: '', grade: 
 async function load() {
   loading.value = true
   try {
-    rows.value = await http.get('/student/list', { params: { keyword: keyword.value || undefined } })
+    rows.value = await http.get('/student/list', {
+      params: {
+        keyword: keyword.value || undefined,
+        className: className.value || undefined,
+      },
+    })
+    // 未按班级筛选时刷新班级选项缓存（保证选项与库内班级一致）
+    if (!className.value) {
+      allClasses = rows.value.map(r => r.className).filter(Boolean)
+    }
   } finally { loading.value = false }
 }
 
