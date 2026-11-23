@@ -24,6 +24,11 @@
           <el-option v-for="n in 5" :key="n" :label="n + ' ★'" :value="n" />
         </el-select>
       </el-form-item>
+      <el-form-item label="课号">
+        <el-select v-model="q.courseNo" style="width:120px" clearable filterable placeholder="全部">
+          <el-option v-for="c in courseNos" :key="c" :label="c" :value="c" />
+        </el-select>
+      </el-form-item>
       <el-form-item><el-button type="primary" size="small" @click="load(1)">查询</el-button></el-form-item>
     </el-form>
 
@@ -35,6 +40,9 @@
         <template #default="{ row }"><el-tag size="small">{{ Q_TYPE_LABELS[row.qType] || row.qType }}</el-tag></template>
       </el-table-column>
       <el-table-column prop="stem" label="题干" show-overflow-tooltip />
+      <el-table-column prop="courseNo" label="课号" width="86" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.courseNo || '—' }}</template>
+      </el-table-column>
       <el-table-column label="难度" width="66">
         <template #default="{ row }">{{ row.difficulty }}★</template>
       </el-table-column>
@@ -74,7 +82,17 @@ const excludeSet = computed(() => new Set(props.excludeIds.map(Number)))
 const subjects = ['数学', '语文', '英语', '物理', '化学', '生物', '科学', '历史', '地理', '道德与法治']
 const grades = ['一年级', '二年级', '三年级', '四年级', '五年级', '六年级', '七年级', '八年级', '九年级', '高一', '高二', '高三']
 
-const q = reactive({ page: 1, size: 10, keyword: '', subject: '', grade: '', qType: '', difficulty: null })
+const q = reactive({ page: 1, size: 10, keyword: '', subject: '', grade: '', qType: '', difficulty: null, courseNo: '' })
+const courseNos = ref([])
+
+/** 课号下拉选项（打开弹窗时拉取一次） */
+async function loadCourseNos() {
+  try {
+    courseNos.value = await http.get('/question/course-nos')
+  } catch {
+    courseNos.value = []
+  }
+}
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
@@ -87,6 +105,7 @@ watch(() => props.modelValue, v => {
     selected.value = []
     q.page = 1
     load()
+    if (!courseNos.value.length) loadCourseNos()
   }
 })
 
@@ -102,6 +121,7 @@ async function load(page) {
       grade: q.grade || null,
       qType: q.qType || null,
       difficulty: q.difficulty || null,
+      courseNo: q.courseNo ? [q.courseNo] : null,
     })
     rows.value = d.records || []
     total.value = Number(d.total || 0)
