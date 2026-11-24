@@ -231,6 +231,7 @@
                   <el-dropdown-item command="none">试卷（不含答案）</el-dropdown-item>
                   <el-dropdown-item command="inline">试卷 + 答案填在相应位置</el-dropdown-item>
                   <el-dropdown-item command="separate">试卷 + 答案页（末页集中）</el-dropdown-item>
+                  <el-dropdown-item command="sheet" divided>Word + 答题卡（答题卡在后）</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>

@@ -796,14 +796,27 @@ async function loadDocs() {
   } catch (e) {}
 }
 
+/** 主页面全局粘贴：不在截屏对话框时，Ctrl+V 直接把剪贴板图片加入识别列表 */
+function onGlobalPaste(e) {
+  if (shotDlg.value) return                       // 截屏对话框有专门处理
+  const img = findImageInClipboard(e.clipboardData)
+  if (!img) return
+  const file = new File([img], `粘贴-${stamp()}.png`, { type: img.type })
+  fileList.value = [...fileList.value, { name: file.name, raw: file, uid: Date.now(), status: 'ready' }]
+  if (!docName.value) docName.value = `粘贴试卷-${stamp()}`
+  ElMessage.success('剪贴板图片已加入识别列表，点「开始扫描识别」即可')
+}
+
 onMounted(() => {
   loadDocs()
   docsTimer = setInterval(loadDocs, 5000)   // 手机拍照上传后，电脑端自动出现
   http.get('/scan/health').then(d => ocrOk.value = d.ocrAvailable).catch(() => {})
+  window.addEventListener('paste', onGlobalPaste)
 })
 onBeforeUnmount(() => {
   clearInterval(docsTimer)
   window.removeEventListener('paste', onPaste)
+  window.removeEventListener('paste', onGlobalPaste)
   window.removeEventListener('keydown', onShotKeydown)
   stopStream()
 })

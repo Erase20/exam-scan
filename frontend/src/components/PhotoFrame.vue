@@ -12,6 +12,7 @@
         <div class="pf-cam-frame" :class="{ locked: !!markers }" :style="{ aspectRatio: String(aspect) }">
           <span class="pf-corner tl"></span><span class="pf-corner tr"></span>
           <span class="pf-corner bl"></span><span class="pf-corner br"></span>
+          <span class="pf-mid h"></span><span class="pf-mid v"></span>
         </div>
         <span v-for="(p, i) in markerDots" :key="i" class="pf-dot" :style="p"></span>
         <div class="pf-cam-hint" :class="{ locked: !!markers }">
@@ -30,8 +31,15 @@
       </div>
       <div class="pf-hint">{{ hint }}</div>
       <div class="pf-note">
-        当前浏览器不支持网页实时取景（内网 HTTP 环境常见）。用系统相机拍下整页后，
-        系统会自动识别四角定位点并校正裁切，无需手动拖框。
+        <template v-if="!isSecureContext">
+          当前通过 HTTP 访问，浏览器禁止网页调用摄像头，所以看不到实时取景线框。
+          <b>请在手机浏览器地址栏改用 https://{{ locationHost }}:8443 打开本系统</b>（自签证书，提示不安全时点「高级 → 继续访问」），
+          再进入拍照即可看到绿色线框与水平参考线。也可以先用系统相机拍下整页，系统仍会自动识别四角定位点并校正裁切。
+        </template>
+        <template v-else>
+          当前浏览器不支持网页实时取景。用系统相机拍下整页后，
+          系统会自动识别四角定位点并校正裁切，无需手动拖框。
+        </template>
       </div>
     </div>
 
@@ -92,6 +100,8 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'confirm'])
 
 const stage = ref('fallback')           // camera | fallback | processing | failed
+const isSecureContext = typeof window !== 'undefined' && window.isSecureContext
+const locationHost = typeof window !== 'undefined' ? window.location.hostname : ''
 const videoEl = ref(null)
 const stageEl = ref(null)
 const camInput = ref(null)
@@ -413,6 +423,10 @@ onBeforeUnmount(() => {
 }
 .pf-note { font-size: 12px; line-height: 1.7; color: #d0d0d0; margin-top: 6px; text-align: center; }
 .pf-corner { position: absolute; width: 26px; height: 26px; border: 3px solid #4cd964; }
+/* 水平/垂直参考虚线：辅助对准答题卡的水平位置 */
+.pf-mid { position: absolute; background: rgba(76, 217, 100, .55); }
+.pf-mid.h { left: 6%; right: 6%; top: 50%; height: 1px; background-image: linear-gradient(rgba(76,217,100,.75) 50%, transparent 50%); background-size: 100% 6px; height: 6px; background-color: transparent; }
+.pf-mid.v { top: 6%; bottom: 6%; left: 50%; width: 6px; background-image: linear-gradient(90deg, rgba(76,217,100,.75) 50%, transparent 50%); background-size: 6px 100%; background-color: transparent; }
 .pf-corner.tl { left: -3px; top: -3px; border-right: 0; border-bottom: 0; }
 .pf-corner.tr { right: -3px; top: -3px; border-left: 0; border-bottom: 0; }
 .pf-corner.bl { left: -3px; bottom: -3px; border-right: 0; border-top: 0; }

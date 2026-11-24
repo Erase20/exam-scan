@@ -24,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -102,6 +104,7 @@ public class GradingService {
     public Map<String, Object> grade(byte[] imageBytes, Long paperId, Long sheetId, String mode,
                                   Integer pageIndexParam, Long mergeInto) {
         boolean useOcr = !"fast".equalsIgnoreCase(mode);
+        long t0 = System.currentTimeMillis();
         Paper paper = paperMapper.selectById(paperId);
         if (paper == null) {
             throw new BizException("试卷不存在");
@@ -140,6 +143,8 @@ public class GradingService {
 
         // 1. 透视校正到标准尺寸
         BufferedImage norm = PerspectiveCorrector.normalize(img, pageW, pageH, layout);
+        long tCorrect = System.currentTimeMillis();
+        log.info("阅卷计时 paperId={} 模式={} 图片{}x{} 透视校正 {}ms", paperId, mode, img.getWidth(), img.getHeight(), tCorrect - t0);
 
         // 2. 逐题识别涂点
         List<PaperItem> items = itemMapper.selectList(new LambdaQueryWrapper<PaperItem>()
@@ -332,6 +337,7 @@ public class GradingService {
         }
 
         BigDecimal total = objectiveScore.setScale(1, RoundingMode.HALF_UP);
+        log.info("阅卷计时 paperId={} 涂点判定 {}ms", paperId, System.currentTimeMillis() - tCorrect);
 
         // 多页答题卡：后续页逐页上传后合并到同一条阅卷记录（mergeInto=已建阅卷记录 id）
         if (mergeInto != null) {
@@ -442,11 +448,14 @@ public class GradingService {
         }
 
         // 每题作答区截图（客观题涂点位置 / 主观题答题框），供人工核对与打分
+        long tInfo = System.currentTimeMillis();
         try {
             cropAnswerCells(pageLayout, norm, gs, details, useOcr);
         } catch (Exception e) {
             log.warn("作答区截图失败: {}", e.getMessage());
         }
+        log.info("阅卷计时 paperId={} 作答区截图+OCR {}ms 总计 {}ms", paperId,
+                System.currentTimeMillis() - tInfo, System.currentTimeMillis() - t0);
 
         return gradeOut(gs, details, useOcr, inLibrary);
     }
@@ -949,17 +958,44 @@ public class GradingService {
         }
     }
 
+    /**
+     * 发送 OCR 前把图片缩放到指定宽度内（等比、双线性插值）。
+     * 300dpi 校正图单块区域宽约 2000+px，缩到 1200px 后 OCR 推理量减半以上，识别率不受影响；
+     * 图片本身不大或缩放失败时返回原图字节。
+     */
+    private byte[] scaleForOcr(byte[] src, int maxWidth) {
+        try {
+            BufferedImage img = ImageIO.read(new ByteArrayInputStream(src));
+            if (img == null || img.getWidth() <= maxWidth) {
+                return src;
+            }
+            int w = maxWidth;
+            int h = Math.max(1, (int) Math.round(img.getHeight() * (double) maxWidth / img.getWidth()));
+            BufferedImage small = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g = small.createGraphics();
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(img, 0, 0, w, h, null);
+            g.dispose();
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            ImageIO.write(small, "jpg", bos);
+            return bos.toByteArray();
+        } catch (Exception e) {
+            return src;
+        }
+    }
+
     /** 考号手写 OCR：1~8 位数字都采纳（短学号也能识别）；普通 OCR 识别不出时用增强识别再试一次 */
     private String ocrIdRegion(byte[] img) {
         if (img == null || !ocrClient.isAvailable()) {
             return "";
         }
+        byte[] scaled = scaleForOcr(img, 1200);
         try {
-            String text = digitsOnly(flat(String.join("", ocrClient.recognizeText(img))));
+            String text = digitsOnly(flat(String.join("", ocrClient.recognizeText(scaled))));
             if (text.matches("\\d{1,8}")) {
                 return text;
             }
-            text = digitsOnly(flat(ocrClient.recognizeTextBest(img)));
+            text = digitsOnly(flat(ocrClient.recognizeTextBest(scaled)));
             return text.matches("\\d{1,8}") ? text : "";
         } catch (Exception e) {
             return "";
@@ -971,12 +1007,13 @@ public class GradingService {
         if (img == null || !ocrClient.isAvailable()) {
             return "";
         }
+        byte[] scaled = scaleForOcr(img, 1200);
         try {
-            String text = cleanInfoText(String.join("", ocrClient.recognizeText(img)), label);
+            String text = cleanInfoText(String.join("", ocrClient.recognizeText(scaled)), label);
             if (validInfoText(text)) {
                 return text;
             }
-            text = cleanInfoText(flat(ocrClient.recognizeTextBest(img)), label);
+            text = cleanInfoText(flat(ocrClient.recognizeTextBest(scaled)), label);
             return validInfoText(text) ? text : "";
         } catch (Exception e) {
             return "";
@@ -1015,7 +1052,7 @@ public class GradingService {
             if (img == null || !ocrClient.isAvailable()) {
                 return m;
             }
-            String text = String.join("", ocrClient.recognizeText(img))
+            String text = String.join("", ocrClient.recognizeText(scaleForOcr(img, 1200)))
                     .replaceAll("\\s+", "");
             Matcher mn = Pattern.compile(
                     "(?:姓名|娃名|姓|名)\\s*[：:]?\\s*([\\u4e00-\\u9fa5A-Za-z·]{1,16}?)\\s*(?=班级|考号|$)").matcher(text);
@@ -1667,7 +1704,7 @@ public class GradingService {
         if (b == null || !ocrClient.isAvailable()) {
             return "";
         }
-        return ocrClient.recognizeTextBest(b);
+        return ocrClient.recognizeTextBest(scaleForOcr(b, 1200));
     }
 
     /** 读取单题作答区截图；不存在返回 null */
@@ -1765,7 +1802,7 @@ public class GradingService {
             if (rw <= 30 || rh <= 20 || !hasInk(norm, rx, ry, rw, rh)) {
                 return "";
             }
-            String text = ocrClient.recognizeTextBest(Files.readAllBytes(fullCrop));
+            String text = ocrClient.recognizeTextBest(scaleForOcr(Files.readAllBytes(fullCrop), 1200));
             // 增强识别会合并重复行；同时剔除印刷的「得分」与题号前缀，只保留学生手写内容
             String[] lines = text.split("\\n");
             StringBuilder sb = new StringBuilder();

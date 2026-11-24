@@ -3,6 +3,9 @@ package com.examscan.modules.paper.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.examscan.common.PaperAnswerUtil;
 import com.examscan.common.QuestionType;
+import com.examscan.modules.answer.entity.AnswerSheet;
+import com.examscan.modules.answer.mapper.AnswerSheetMapper;
+import com.examscan.modules.answer.service.AnswerSheetService;
 import com.examscan.modules.paper.entity.Paper;
 import com.examscan.modules.paper.entity.PaperItem;
 import com.examscan.modules.paper.mapper.PaperItemMapper;
@@ -19,6 +22,7 @@ import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.util.Units;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.apache.poi.xwpf.usermodel.*;
@@ -29,6 +33,7 @@ import org.springframework.stereotype.Service;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -49,10 +54,59 @@ public class PaperExportService {
     private final PaperMapper paperMapper;
     private final PaperItemMapper itemMapper;
     private final QuestionMapper questionMapper;
+    private final AnswerSheetService answerSheetService;
+    private final AnswerSheetMapper answerSheetMapper;
     private final ObjectMapper json = new ObjectMapper();
 
     /** inline 模式下会把答案填入题干空位的题型（填空逐空填；选择/判断填入括号空位） */
     private static final Set<String> INLINE_FILL_TYPES = Set.of("FILL", "CHOICE", "JUDGE");
+
+    /**
+     * 在试卷 Word 末尾追加答题卡：每页答题卡渲染为一张 300dpi 整页图片插入（分页隔开）。
+     * 已有答题卡复用最新一张；没有则按当前试卷即时生成。
+     */
+    private void appendAnswerSheets(XWPFDocument doc, Long paperId) {
+        try {
+            List<AnswerSheet> exist = answerSheetMapper.selectList(new LambdaQueryWrapper<AnswerSheet>()
+                    .eq(AnswerSheet::getPaperId, paperId)
+                    .orderByDesc(AnswerSheet::getId)
+                    .last("LIMIT 1"));
+            AnswerSheet sheet = exist.isEmpty() ? answerSheetService.generate(paperId, null) : exist.get(0);
+            int pageCount = sheet.getPageCount() == null ? 1 : Math.max(1, sheet.getPageCount());
+            // 页面可用区域（与正文页边距一致）：宽约 482pt、高约 697pt；
+            // 答题卡宽高比 2480/3508≈0.707，取宽 480pt 高约 679pt，正好独占一页
+            int imgW = 480;
+            int imgH = (int) Math.round(imgW * 3508.0 / 2480.0);
+            int inserted = 0;
+            for (int i = 0; i < pageCount; i++) {
+                BufferedImage pageImg = answerSheetService.renderPage(sheet, i, 1);
+                if (pageImg == null) {
+                    continue;
+                }
+                ByteArrayOutputStream pb = new ByteArrayOutputStream();
+                ImageIO.write(pageImg, "png", pb);
+                XWPFParagraph p = doc.createParagraph();
+                p.setAlignment(ParagraphAlignment.CENTER);
+                p.setSpacingBefore(0);
+                p.setSpacingAfter(0);
+                XWPFRun r = p.createRun();
+                r.addBreak(BreakType.PAGE);   // 每张答题卡独占一页
+                try (InputStream in = new ByteArrayInputStream(pb.toByteArray())) {
+                    r.addPicture(in, Document.PICTURE_TYPE_PNG, "answer-sheet-" + (i + 1) + ".png",
+                            Units.toEMU(imgW), Units.toEMU(imgH));
+                }
+                inserted++;
+            }
+            log.info("试卷 {} 导出追加答题卡 {} 页（sheetId={}）", paperId, inserted, sheet.getId());
+        } catch (Exception e) {
+            log.warn("导出答题卡失败: {}", e.getMessage());
+            XWPFParagraph p = doc.createParagraph();
+            p.setAlignment(ParagraphAlignment.CENTER);
+            XWPFRun r = p.createRun();
+            r.setBold(true);
+            r.setText("（答题卡追加失败：" + e.getMessage() + "，请到「答题卡管理」单独生成）");
+        }
+    }
 
     /** 与 WebConfig 的 /files/** 映射一致，用于把题图 Web 路径还原成磁盘文件 */
     @Value("${exam-scan.storage.root:./data/storage}")
@@ -73,12 +127,14 @@ public class PaperExportService {
      * @param answerMode 答案呈现方式：
      *                   none     —— 不含答案；
      *                   inline   —— 答案填在相应位置（填空题逐空填入题干空位，选择/判断填入括号，无空位题型题后标【答案】）；
-     *                   separate —— 答案与解析集中排在试卷末页（旧行为）。
+     *                   separate —— 答案与解析集中排在试卷末页（旧行为）；
+     *                   sheet    —— 试卷正文（不含答案）末尾追加答题卡整页（每页一张 300dpi 图片，打印清晰）。
      */
     public byte[] exportDocx(Long paperId, String answerMode) {
         String mode = answerMode == null ? "none" : answerMode;
         boolean inline = "inline".equals(mode);
         boolean separate = "separate".equals(mode);
+        boolean withSheet = "sheet".equals(mode);
         Paper paper = paperMapper.selectById(paperId);
         if (paper == null) {
             throw new IllegalArgumentException("试卷不存在");
@@ -273,6 +329,11 @@ public class PaperExportService {
                         no++;
                     }
                 }
+            }
+
+            // 试卷末尾追加答题卡整页（word+答题卡 模式）
+            if (withSheet) {
+                appendAnswerSheets(doc, paperId);
             }
 
             doc.write(out);
