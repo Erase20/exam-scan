@@ -251,18 +251,36 @@
     </div>
 
     <!-- 错题详情：点击错题统计的题号/大题打开，显示题目内容与失分考生 -->
-    <el-dialog v-model="wqVisible" width="780px" top="6vh"
-               :title="wqQ ? `第 ${wqQ.qNo} 题（${wqQ.sectionName}）` : '错题详情'">
+    <el-dialog v-model="wqVisible" :width="wqFull ? '96%' : '820px'" :top="wqFull ? '1vh' : '5vh'">
+      <template #header>
+        <div class="gd-dialog-head">
+          <span>{{ wqQ ? `第 ${wqQ.qNo} 题（${wqQ.sectionName}）` : '错题详情' }}</span>
+          <el-button link type="primary" size="small" style="margin-left:12px" @click="wqFull = !wqFull">
+            {{ wqFull ? '还原' : '⤢ 最大化' }}
+          </el-button>
+        </div>
+      </template>
       <div v-if="wqQ">
         <div class="wq-meta">
-          <el-tag size="small">{{ typeLabel(wqQ.qType) }}</el-tag>
+          <el-button-group style="margin-right:8px">
+            <el-button size="small" :disabled="wqIdx <= 0" @click="wqStep(-1)">← 上一题</el-button>
+            <el-button size="small" :disabled="wqIdx < 0 || wqIdx >= wrongQs.length - 1" @click="wqStep(1)">
+              下一题 →
+            </el-button>
+          </el-button-group>
+          <span style="color:#909399;font-size:12px">{{ wqIdx + 1 }} / {{ wrongQs.length }}（按出错率排序）</span>
+          <el-tag size="small" style="margin-left:12px">{{ typeLabel(wqQ.qType) }}</el-tag>
           <span>分值 <b>{{ fmt(wqQ.score) }}</b> 分</span>
           <span v-if="wqInfo.difficulty">难度 {{ wqInfo.difficulty }}★</span>
           <span>出错率 <b class="wq-rate">{{ wqQ.wrongRate }}%</b>（失分 {{ wqQ.wrongCount }} / {{ wqQ.answered }} 人）</span>
+          <el-switch v-model="wqHideAnswer" active-text="隐藏答案" style="margin-left:auto" />
         </div>
-        <div class="wq-block"><b>题干：</b>{{ wqInfo.stem || '（无题干）' }}</div>
-        <div class="wq-block"><b>标准答案：</b>{{ wqInfo.answer || '—' }}</div>
-        <div v-if="wqInfo.analysis" class="wq-block"><b>解析：</b>{{ wqInfo.analysis }}</div>
+        <div class="wq-stem" :class="{ big: wqFull }"><b>题干：</b>{{ wqInfo.stem || '（无题干）' }}</div>
+        <template v-if="!wqHideAnswer">
+          <div class="wq-block"><b>标准答案：</b>{{ wqInfo.answer || '—' }}</div>
+          <div v-if="wqInfo.analysis" class="wq-block"><b>解析：</b>{{ wqInfo.analysis }}</div>
+        </template>
+        <div v-else class="wq-answer-mask" @click="wqHideAnswer = false">答案已隐藏，点击开关或此处显示标准答案</div>
         <div style="font-weight:600;margin:14px 0 6px">失分考生（{{ wqQ.wrongStudents.length }} 人）</div>
         <el-table v-if="wqQ.wrongStudents.length" :data="wqQ.wrongStudents" size="small" border max-height="240">
           <el-table-column prop="className" label="班级" min-width="100" />
@@ -500,11 +518,21 @@ async function loadWrongQuestions() {
 
 // ---------------- 错题详情（点大题/题号打开） ----------------
 const wqVisible = ref(false)
+const wqFull = ref(false)          // 最大化
+const wqHideAnswer = ref(false)    // 隐藏标准答案（讲评时先让学生思考）
 const wqQ = ref(null)
 const wqInfo = computed(() => (wqQ.value && wqInfoMap.value[wqQ.value.paperItemId]) || {})
+/** 当前题在错题列表中的位置，供上一题/下一题切换 */
+const wqIdx = computed(() => wrongQs.value.findIndex(x => x.paperItemId === wqQ.value?.paperItemId))
 function openWrongQ(row) {
   wqQ.value = row
   wqVisible.value = true
+}
+function wqStep(delta) {
+  const i = wqIdx.value + delta
+  if (i >= 0 && i < wrongQs.value.length) {
+    wqQ.value = wrongQs.value[i]
+  }
 }
 
 /** 把勾选的错题重新组卷（新建「错题重练」试卷，题目按题型自动归入大题） */
@@ -723,9 +751,26 @@ onMounted(async () => {
 .gd-head b { color: #303133; }
 .gd-dialog-head { display: flex; align-items: center; font-size: 16px; font-weight: 600; }
 /* 错题详情弹窗 */
-.wq-meta { display: flex; gap: 18px; align-items: center; margin-bottom: 12px; font-size: 13px; color: #606266; }
+.wq-meta { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; font-size: 13px; color: #606266; flex-wrap: wrap; }
 .wq-meta b { color: #303133; }
 .wq-rate { color: #F56C6C; font-size: 15px; }
+/* 题干：正常模式与最大化模式的醒目程度不同 */
+.wq-stem {
+  margin-bottom: 10px; padding: 10px 14px; background: #f5f7fa;
+  border-left: 4px solid #409EFF; border-radius: 4px;
+  font-size: 15px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; color: #303133;
+}
+.wq-stem.big {
+  font-size: 22px; font-weight: 600; line-height: 2;
+  padding: 18px 24px; background: #ecf5ff; border-left: 6px solid #409EFF;
+}
+/* 答案隐藏遮罩 */
+.wq-answer-mask {
+  margin-bottom: 8px; padding: 14px; text-align: center;
+  background: repeating-linear-gradient(45deg, #fafafa, #fafafa 12px, #f5f5f5 12px, #f5f5f5 24px);
+  border: 1px dashed #c0c4cc; border-radius: 4px;
+  color: #909399; font-size: 13px; cursor: pointer; user-select: none;
+}
 .wq-block {
   margin-bottom: 8px; padding: 8px 12px; background: #f5f7fa;
   border-left: 3px solid #409EFF; border-radius: 4px;
