@@ -184,7 +184,7 @@
         </el-table-column>
       </el-table>
       <div style="margin-top:12px;display:flex;gap:10px;align-items:center">
-        <el-button type="success" :loading="savingScore" @click="saveScores">保存分数修改</el-button>
+        <el-button ref="saveBtnRef" type="success" :loading="savingScore" @click="saveScores">保存分数修改</el-button>
         <span style="font-size:12px;color:#909399">保存后自动重算客观/主观/总分，可反复修改</span>
       </div>
     </div>
@@ -470,6 +470,7 @@ async function openMark(row) {
 
 /** 得分框回车：焦点跳到下一题，并短暂显示下一题学生作答情况供打分参考 */
 const scoreRefs = []
+const saveBtnRef = ref(null)
 const nextHint = ref(null)
 const hintStyle = ref({ left: '50%', bottom: '16px', transform: 'translateX(-50%)' })
 const cellOcr = ref('')      // 下一题作答区 OCR 识别出的学生答案
@@ -528,8 +529,12 @@ function onScoreEnter(i) {
   const details = result.value?.details || []
   const next = details[i + 1]
   if (!next) {
+    // 最后一题回车：焦点跳到「保存分数修改」按钮，再按回车即保存并自动跳下一份
     nextHint.value = null
-    ElMessage.info('已是最后一题，修改完成后点击「保存分数修改」')
+    ElMessage.info('已是最后一题：回车保存分数并自动跳到下一份待改答卷')
+    nextTick(() => {
+      saveBtnRef.value?.$el?.focus?.()
+    })
     return
   }
   hintAt = i + 1
@@ -586,7 +591,7 @@ function focusFirstScore() {
 
 /** 保存分数修改：全量提交，后端按明细重算客观/主观/总分；保存后自动载入下一份待改答卷（从头继续） */
 async function saveScores() {
-  if (!result.value?.gradeId) return
+  if (savingScore.value || !result.value?.gradeId) return
   savingScore.value = true
   try {
     const items = (result.value.details || [])
