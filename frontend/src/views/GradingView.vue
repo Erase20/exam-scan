@@ -203,7 +203,18 @@
           🗑 批量删除{{ recSel.length ? `（${recSel.length}）` : '' }}
         </el-button>
       </div>
-      <el-table ref="recTableRef" :data="records" size="small" style="margin-top:8px"
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
+        <el-input v-model="recFilter.no" placeholder="筛选考号" clearable style="width:150px" size="small" />
+        <el-input v-model="recFilter.name" placeholder="筛选姓名" clearable style="width:130px" size="small" />
+        <el-select v-model="recFilter.className" placeholder="按班级筛选" clearable filterable allow-create
+                   style="width:150px" size="small">
+          <el-option v-for="c in recClassOptions" :key="c" :label="c" :value="c" />
+        </el-select>
+        <span style="font-size:12px;color:#909399">
+          显示 {{ filteredRecords.length }} / {{ records.length }} 条；导出与批量删除只作用于筛选后的记录
+        </span>
+      </div>
+      <el-table ref="recTableRef" :data="filteredRecords" size="small" style="margin-top:8px"
                 @selection-change="s => recSel = s">
         <el-table-column type="selection" width="40" />
         <el-table-column prop="id" label="ID" width="60" />
@@ -315,7 +326,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import QRCode from 'qrcode'
@@ -338,6 +349,23 @@ function goStats() {
   router.push({ path: '/grading-stats', query: paperId.value ? { paperId: paperId.value } : {} })
 }
 const grading = ref(false); const result = ref(null); const records = ref([])
+
+// ---------- 阅卷记录筛选（考号/姓名/班级） ----------
+const recFilter = reactive({ no: '', name: '', className: '' })
+const filteredRecords = computed(() => {
+  const no = recFilter.no.trim().toLowerCase()
+  const nm = recFilter.name.trim().toLowerCase()
+  const cls = recFilter.className.trim().toLowerCase()
+  return (records.value || []).filter(r =>
+    (!no || String(r.studentNo || '').toLowerCase().includes(no)) &&
+    (!nm || String(r.studentName || '').toLowerCase().includes(nm)) &&
+    (!cls || String(r.className || '').toLowerCase().includes(cls))
+  )
+})
+const recClassOptions = computed(() => {
+  const set = new Set((records.value || []).map(r => r.className).filter(c => c && c !== '待确认'))
+  return [...set].sort((a, b) => String(a).localeCompare(String(b), 'zh'))
+})
 const savingScore = ref(false)
 const gradeMode = ref(localStorage.getItem('examGradeMode') || 'ocr')
 const saveGradeMode = () => localStorage.setItem('examGradeMode', gradeMode.value)
@@ -707,6 +735,7 @@ let seenRecordIds = null   // 已展示过的记录，用于发现新记录（�
 async function loadRecords() {
   const list = await http.get('/grading/list').catch(() => [])
   records.value = list || []
+  // 班级下拉选项随记录动态更新（筛选框保留用户已选值）
   // 首次只记基线；之后每发现一条新记录就自动展示到「阅卷结果」区
   if (seenRecordIds === null) {
     seenRecordIds = new Set((list || []).map(r => String(r.id)))
@@ -787,7 +816,7 @@ async function exportExcel() {
   exporting.value = true
   try {
     const XLSX = await import('xlsx')
-    const rows = (records.value || []).map((r, i) => [
+    const rows = filteredRecords.value.map((r, i) => [
       i + 1, (r.createTime || '').replace('T', ' ').slice(0, 19),
       r.className || '', r.studentName || '', r.studentNo || '',
       Number(r.objectiveScore) || 0, Number(r.subjectiveScore) || 0,
@@ -814,7 +843,7 @@ async function exportImages() {
     const JSZip = (await import('jszip')).default
     const zip = new JSZip()
     let n = 0
-    for (const r of records.value || []) {
+    for (const r of filteredRecords.value) {
       try {
         const res = await fetch(`/api/grading/${r.id}/image`)
         if (!res.ok) continue
