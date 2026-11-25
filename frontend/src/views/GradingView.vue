@@ -255,31 +255,20 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="学号/考号" width="160">
+        <el-table-column label="学号/考号" min-width="240">
           <template #default="{ row }">
-            <div style="display:flex;align-items:center;gap:2px">
-              <el-popover :visible="noPopId === row.id && row.imagePath" placement="top-start" :width="300"
-                          trigger="manual" :popper-style="{ padding: '8px' }">
-                <template #reference>
-                  <el-input v-model="row.studentNo" size="small" placeholder="修正考号后按回车"
-                            class="rec-no-input"
-                            :class="{ 'stu-warn': !row.studentName }"
-                            :ref="el => setNoRef(row.id, el)"
-                            @change="saveInfo(row)" @keyup.enter="fixNo(row)" />
-                </template>
-                <div style="font-size:12px;color:#909399;margin-bottom:4px">该生考号截图（核对无误回车继续）</div>
-                <el-image :src="`/api/grading/${row.id}/crop/id`" style="width:100%">
-                  <template #error><div style="font-size:12px;color:#c0c4cc;padding:20px 0;text-align:center">无考号截图</div></template>
-                </el-image>
-              </el-popover>
-              <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
-                <template #reference>
-                  <el-button size="small" text type="primary" style="padding:0 3px">图</el-button>
-                </template>
-                <div style="font-size:12px;color:#909399;margin-bottom:4px">考号手写选区截图</div>
-                <el-image :src="`/api/grading/${row.id}/crop/id`" style="width:100%"
-                          :preview-src-list="[`/api/grading/${row.id}/crop/id`]" preview-teleported />
-              </el-popover>
+            <div style="display:flex;align-items:center;gap:6px">
+              <el-input v-model="row.studentNo" size="small" placeholder="修正考号后按回车"
+                        class="rec-no-input"
+                        :class="{ 'stu-warn': !row.studentName }"
+                        :ref="el => setNoRef(row.id, el)"
+                        @change="saveInfo(row)" @keyup.enter="fixNo(row)" />
+              <el-image v-if="row.imagePath" :src="`/api/grading/${row.id}/crop/id`"
+                        fit="contain"
+                        style="width:66px;height:30px;flex:none;background:#fafafa;border:1px solid #ebeef5;border-radius:3px"
+                        :preview-src-list="[`/api/grading/${row.id}/crop/id`]" preview-teleported>
+                <template #error><div style="font-size:11px;color:#c0c4cc;text-align:center;line-height:28px">无截图</div></template>
+              </el-image>
             </div>
           </template>
         </el-table-column>
@@ -788,8 +777,6 @@ const noInputRefs = {}
 function setNoRef(id, el) {
   if (el) noInputRefs[id] = el
 }
-const noPopId = ref(null)          // 当前显示考号截图提示浮层的记录 id
-let noPopTimer = null
 
 function focusNo(id) {
   setTimeout(() => {
@@ -803,23 +790,16 @@ function focusNo(id) {
 
 /**
  * 考号框回车：保存（后端按考号查考生库回填姓名/班级，查不到则清空）→
- * 焦点与光标跳到下一个学生的考号框（全选便于直接输入）→
- * 在其考号框上方短暂显示该生的考号手写截图供核对（跟随光标位置，约 2.6 秒自动消失）。
+ * 焦点与光标跳到下一个学生的考号框（全选便于直接输入）。
+ * 考号截图已常驻显示在考号列中，直接对照核对，无需额外提示。
  */
 async function fixNo(row) {
   await saveInfo(row)
   const list = filteredRecords.value
   const i = list.findIndex(x => x.id === row.id)
   const next = i >= 0 ? list[i + 1] : null
-  clearTimeout(noPopTimer)
   if (next) {
-    noPopId.value = null
-    await nextTick()
-    noPopId.value = next.id
     focusNo(next.id)
-    noPopTimer = setTimeout(() => { noPopId.value = null }, 2600)
-  } else {
-    noPopId.value = null
   }
 }
 
