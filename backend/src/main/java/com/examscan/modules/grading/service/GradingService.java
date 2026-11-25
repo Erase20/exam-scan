@@ -72,7 +72,7 @@ public class GradingService {
      * 原先串行执行，一张卡要发 5~15 次顺序 HTTP 请求，耗时 10 秒以上；
      * 并发 4 路调用后单卡识别可控制在 3~5 秒。
      */
-    private final ExecutorService ocrPool = Executors.newFixedThreadPool(4, r -> {
+    private final ExecutorService ocrPool = Executors.newFixedThreadPool(6, r -> {
         Thread t = new Thread(r, "ocr-call");
         t.setDaemon(true);
         return t;
@@ -878,7 +878,10 @@ public class GradingService {
         }
     }
 
-    /** 每页信息区（姓名/班级/手写考号）识别：返回 {考号, 姓名, 班级}，识别不出对应项为空串 */
+    /**
+     * 每页信息区识别：只识别手写考号（返回 {考号, 姓名, 班级}，姓名/班级恒为空串）。
+     * 姓名/班级一律由考号查询考生库得出，不再做 OCR——省掉 2~3 次识别请求，单卡提速明显且不损正确率。
+     */
     private String[] ocrStudentInfo(Map<?, ?> layout, BufferedImage norm, boolean ocrAvailable, int yOff) {
         String[] out = {"", "", ""};
         Map<?, ?> info = infoShifted((Map<?, ?>) layout.get("info"), yOff);
@@ -886,40 +889,17 @@ public class GradingService {
             return out;
         }
         try {
-            // 三个字段并行识别（原先串行要 3~7 次顺序 HTTP 调用，是单卡识别耗时的大头）
-            Future<String> fId = null, fName = null, fClass = null;
             if (info.get("idHandBox") instanceof Map<?, ?> hb) {
                 byte[] b = cropBytes(norm, hb, 24);
                 if (b != null) {
-                    fId = ocrPool.submit(() -> ocrIdRegion(b));
+                    out[0] = ocrIdRegion(b);
                 }
             }
-            if (info.get("nameBox") instanceof Map<?, ?> nb) {
-                byte[] b = cropBytes(norm, nb, 24);
-                if (b != null) {
-                    fName = ocrPool.submit(() -> ocrInfoRegion(b, "姓名"));
-                }
-            }
-            if (info.get("classBox") instanceof Map<?, ?> cb) {
-                byte[] b = cropBytes(norm, cb, 24);
-                if (b != null) {
-                    fClass = ocrPool.submit(() -> ocrInfoRegion(b, "班级"));
-                }
-            }
-            out[0] = awaitOcr(fId);
-            out[1] = awaitOcr(fName);
-            out[2] = awaitOcr(fClass);
-            // 整块信息区 OCR 兜底：分块识别不出的字段，用整块识别补全（提高手写字段识别率）
-            if (blank(out[0]) || blank(out[1]) || blank(out[2])) {
+            // 考号分块识别不出时，整块信息区 OCR 只补考号
+            if (blank(out[0])) {
                 Map<String, String> w = ocrInfoWhole(cropBytes(norm, unionInfoBox(info), 24));
-                if (blank(out[0]) && w.get("no") != null) {
+                if (w.get("no") != null) {
                     out[0] = w.get("no");
-                }
-                if (blank(out[1]) && w.get("name") != null) {
-                    out[1] = w.get("name");
-                }
-                if (blank(out[2]) && w.get("class") != null) {
-                    out[2] = w.get("class");
                 }
             }
         } catch (Exception e) {

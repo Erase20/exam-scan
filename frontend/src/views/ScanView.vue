@@ -492,10 +492,31 @@ function useCrop() {
 
 function useWhole() { addShotToFiles(shotImage.value, '整图截图') }
 
+/** 大图上传前压缩：宽超过 2480px（A4@300dpi 等效）或体积超过 3MB 的图片缩放重编码，减小上传体积；不超过则原样（识别精度不受影响） */
+async function compressForUpload(file) {
+  try {
+    if (!file || !String(file.type || '').startsWith('image/') || file.size <= 3 * 1024 * 1024) return file
+    const img = await createImageBitmap(file)
+    const maxW = 2480
+    if (img.width <= maxW) return file
+    const c = document.createElement('canvas')
+    c.width = maxW
+    c.height = Math.round(img.height * maxW / img.width)
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height)
+    const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.9))
+    if (!blob || blob.size >= file.size) return file
+    return new File([blob], String(file.name || 'image').replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' })
+  } catch {
+    return file
+  }
+}
+
 /** 框选模式：只上传登记页面，不跑整卷 OCR，秒级进入框选 */
 async function doUploadForSelect() {
   const fd = new FormData()
-  fileList.value.forEach(f => fd.append('files', f.raw))
+  for (const f of fileList.value) {
+    fd.append('files', await compressForUpload(f.raw))
+  }
   fd.append('docName', docName.value)
   fd.append('subject', subject.value)
   fd.append('grade', grade.value)
@@ -518,7 +539,9 @@ async function doScan() {
       return
     }
     const fd = new FormData()
-    fileList.value.forEach(f => fd.append('files', f.raw))
+    for (const f of fileList.value) {
+      fd.append('files', await compressForUpload(f.raw))
+    }
     fd.append('docName', docName.value)
     fd.append('subject', subject.value)
     fd.append('grade', grade.value)

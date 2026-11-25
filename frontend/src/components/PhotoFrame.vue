@@ -258,13 +258,16 @@ function openAlbum() { albumInput.value?.click() }
 function captureFrame() {
   const v = videoEl.value
   if (!v || !v.videoWidth) return
+  // 直接按上传目标尺寸（长边 2000px、质量 0.85）编码，省掉提交前的二次解码压缩，上传更快
+  const maxSide = 2000
+  const scale = Math.min(1, maxSide / Math.max(v.videoWidth, v.videoHeight))
   const c = document.createElement('canvas')
-  c.width = v.videoWidth
-  c.height = v.videoHeight
-  c.getContext('2d').drawImage(v, 0, 0)
+  c.width = Math.round(v.videoWidth * scale)
+  c.height = Math.round(v.videoHeight * scale)
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height)
   c.toBlob(b => {
     if (b) usePhoto(new File([b], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' }))
-  }, 'image/jpeg', 0.92)
+  }, 'image/jpeg', 0.85)
 }
 
 function onFilePicked(e) {
