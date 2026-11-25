@@ -25,11 +25,12 @@ public class StudentController {
 
     private final StudentService service;
 
-    /** 考生列表（含参加试卷与错题号，供前端链接跳转） */
+    /** 考生列表（含参加试卷与错题号，供前端链接跳转）；paperId=按考试场次（试卷）筛选 */
     @GetMapping("/list")
     public R<List<Map<String, Object>>> list(@RequestParam(required = false) String keyword,
-                                             @RequestParam(required = false) String className) {
-        return R.ok(service.list(keyword, className));
+                                             @RequestParam(required = false) String className,
+                                             @RequestParam(required = false) Long paperId) {
+        return R.ok(service.list(keyword, className, paperId));
     }
 
     /** 按考号查询考生（match），并返回考生库中紧排在后的下一个考生（next），考号修正联动用 */

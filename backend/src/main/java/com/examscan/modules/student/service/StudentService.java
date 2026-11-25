@@ -63,9 +63,24 @@ public class StudentService {
     /**
      * 考生列表（含考试记录）：每个考生附加 exams = 参加过的试卷及错题号，
      * 供前端「参加试卷 / 错题号」列显示与跳转链接。
+     *
+     * @param paperId 考试场次（试卷）过滤：非空时只返回参加过该试卷考试的考生
      */
-    public List<Map<String, Object>> list(String keyword, String className) {
+    public List<Map<String, Object>> list(String keyword, String className, Long paperId) {
         List<Student> students = listStudents(keyword, className);
+        if (paperId != null) {
+            // 只保留在该场次（试卷）有阅卷记录的考生
+            List<GradeSheet> examSheets = gradeSheetMapper.selectList(new LambdaQueryWrapper<GradeSheet>()
+                    .eq(GradeSheet::getPaperId, paperId)
+                    .select(GradeSheet::getStudentNo));
+            Set<String> attended = new HashSet<>();
+            for (GradeSheet gs : examSheets) {
+                if (gs.getStudentNo() != null) {
+                    attended.add(gs.getStudentNo());
+                }
+            }
+            students = students.stream().filter(s -> attended.contains(s.getStudentNo())).toList();
+        }
         if (students.isEmpty()) {
             return List.of();
         }

@@ -9,6 +9,10 @@
                    @change="load">
           <el-option v-for="c in classOptions" :key="c" :label="c" :value="c" />
         </el-select>
+        <el-select v-model="examPaperId" placeholder="按考试场次筛选" clearable filterable style="width:200px"
+                   @change="load">
+          <el-option v-for="p in paperOptions" :key="p.id" :label="p.title" :value="p.id" />
+        </el-select>
         <el-button type="primary" @click="load">查询</el-button>
         <el-upload :show-file-list="false" :auto-upload="false" accept=".xlsx,.xls"
                    :on-change="onFileChange">
@@ -98,6 +102,8 @@ import http from '../api'
 const router = useRouter()
 const rows = ref([]); const keyword = ref(''); const loading = ref(false)
 const className = ref('')          // 班级筛选（空=全部）
+const examPaperId = ref(null)      // 考试场次（试卷）筛选，null=全部
+const paperOptions = ref([])       // 场次下拉选项（试卷列表）
 let allClasses = []                // 班级选项缓存（从全量数据抽取，筛选后选项不缩窄）
 const classOptions = computed(() => {
   const set = new Set(allClasses)
@@ -115,6 +121,7 @@ async function load() {
       params: {
         keyword: keyword.value || undefined,
         className: className.value || undefined,
+        paperId: examPaperId.value || undefined,
       },
     })
     // 未按班级筛选时刷新班级选项缓存（保证选项与库内班级一致）
@@ -217,7 +224,11 @@ async function exportGrades() {
   } finally { exporting.value = false }
 }
 
-onMounted(load)
+onMounted(() => {
+  load()
+  // 场次下拉选项：全部试卷（考试场次）
+  http.get('/paper/list').then(l => paperOptions.value = l || []).catch(() => {})
+})
 </script>
 
 <style scoped>
