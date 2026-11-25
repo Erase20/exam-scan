@@ -1498,32 +1498,29 @@ public class GradingService {
         if (gs == null) {
             throw new BizException("阅卷记录不存在");
         }
+        // 规则：姓名/班级一律由考号决定（不再采用 OCR 识别值）——
+        // 考号在考生表 → 回填考生库登记的姓名/班级；考号为空/未识别/不在考生表 → 清空姓名与班级。
         if (studentNo != null) {
             String v = studentNo.trim();
-            // 占位词视为清空，回到待识别状态（unrecognized 仍可被 OCR/再更正覆盖）
-            gs.setStudentNo("未识别".equals(v) || v.isEmpty() ? "未识别" : v);
-        }
-        if (className != null) {
-            String v = className.trim();
-            gs.setClassName("待确认".equals(v) || v.isEmpty() ? "待确认" : v);
-        }
-        if (studentName != null) {
-            String v = studentName.trim();
-            gs.setStudentName("待确认".equals(v) || v.isEmpty() ? "待确认" : v);
-        }
-        // 规则：姓名/班级一律以考号查询考生库为准（不再采用 OCR 识别值）。
-        // 考号命中 → 强制回填考生库登记的姓名/班级；未命中 → 置为「待确认」由前端提示人工核对。
-        String no = gs.getStudentNo();
-        if (no != null && no.matches("\\d{4,8}")) {
-            Student s = studentService.matchByNo(no);
+            gs.setStudentNo(v.isEmpty() ? "未识别" : v);
+            String no = gs.getStudentNo();
+            Student s = no.matches("\\d{4,8}") ? studentService.matchByNo(no) : null;
             if (s != null) {
-                gs.setStudentName(s.getName());
-                if (s.getClassName() != null) {
-                    gs.setClassName(s.getClassName());
-                }
+                gs.setStudentName(s.getName() == null ? "" : s.getName());
+                gs.setClassName(s.getClassName() == null ? "" : s.getClassName());
             } else {
-                gs.setStudentName("待确认");
-                gs.setClassName("待确认");
+                gs.setStudentName("");
+                gs.setClassName("");
+            }
+        } else {
+            // 未带考号时允许显式修改姓名/班级（占位词视为清空）
+            if (className != null) {
+                String v = className.trim();
+                gs.setClassName("待确认".equals(v) || v.isEmpty() ? "" : v);
+            }
+            if (studentName != null) {
+                String v = studentName.trim();
+                gs.setStudentName("待确认".equals(v) || v.isEmpty() ? "" : v);
             }
         }
         gradeSheetMapper.updateById(gs);

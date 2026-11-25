@@ -225,7 +225,7 @@
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:2px">
               <el-input v-model="row.className" size="small" readonly
-                        :class="{ 'stu-warn': row.className === '待确认' }"
+                        :class="{ 'stu-warn': !row.className }"
                         placeholder="按考号自动填充" />
               <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
                 <template #reference>
@@ -242,8 +242,7 @@
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:2px">
               <el-input v-model="row.studentName" size="small" readonly
-                        :class="{ 'stu-warn': row.studentName === '待确认' }"
-                        :ref="el => setNameRef(row.id, el)"
+                        :class="{ 'stu-warn': !row.studentName }"
                         placeholder="按考号自动填充" />
               <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
                 <template #reference>
@@ -259,9 +258,19 @@
         <el-table-column label="学号/考号" width="160">
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:2px">
-              <el-input v-model="row.studentNo" size="small" placeholder="修正考号后按回车"
-                        :class="{ 'stu-warn': row.studentName === '待确认' }"
-                        @change="saveInfo(row)" @keyup.enter="fixNo(row)" />
+              <el-popover :visible="noPopId === row.id && row.imagePath" placement="top-start" :width="300"
+                          trigger="manual" :popper-style="{ padding: '8px' }">
+                <template #reference>
+                  <el-input v-model="row.studentNo" size="small" placeholder="修正考号后按回车"
+                            :class="{ 'stu-warn': !row.studentName }"
+                            :ref="el => setNoRef(row.id, el)"
+                            @change="saveInfo(row)" @keyup.enter="fixNo(row)" />
+                </template>
+                <div style="font-size:12px;color:#909399;margin-bottom:4px">该生考号截图（核对无误回车继续）</div>
+                <el-image :src="`/api/grading/${row.id}/crop/id`" style="width:100%">
+                  <template #error><div style="font-size:12px;color:#c0c4cc;padding:20px 0;text-align:center">无考号截图</div></template>
+                </el-image>
+              </el-popover>
               <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
                 <template #reference>
                   <el-button size="small" text type="primary" style="padding:0 3px">图</el-button>
@@ -767,45 +776,44 @@ async function saveInfo(row) {
   } catch (e) { return null }
 }
 
-// ---------- 考号修正联动（回车即查考生库） ----------
-const nameInputRefs = {}
-function setNameRef(id, el) {
-  if (el) nameInputRefs[id] = el
+// ---------- 考号修正联动 ----------
+const noInputRefs = {}
+function setNoRef(id, el) {
+  if (el) noInputRefs[id] = el
 }
-function focusName(id) {
-  setTimeout(() => nameInputRefs[id]?.focus?.(), 80)
+const noPopId = ref(null)          // 当前显示考号截图提示浮层的记录 id
+let noPopTimer = null
+
+function focusNo(id) {
+  setTimeout(() => {
+    const el = noInputRefs[id]
+    if (!el) return
+    el.focus?.()
+    const input = el.$el?.querySelector?.('input')
+    input?.select?.()
+  }, 80)
 }
 
 /**
- * 考号输入框回车：保存考号 → 查考生库填充姓名/班级 →
- * 短暂提示下一个考生的考号 → 焦点移到姓名框；不在考生表的考号给出警告提示。
+ * 考号框回车：保存（后端按考号查考生库回填姓名/班级，查不到则清空）→
+ * 焦点与光标跳到下一个学生的考号框（全选便于直接输入）→
+ * 在其考号框上方短暂显示该生的考号手写截图供核对（跟随光标位置，约 2.6 秒自动消失）。
  */
 async function fixNo(row) {
-  const gs = await saveInfo(row)
-  const no = String(gs?.studentNo ?? row.studentNo ?? '').trim()
-  if (!/^\d{4,8}$/.test(no)) {
-    ElMessage.warning('考号应为 4~8 位数字，请修正后再按回车')
-    return
+  await saveInfo(row)
+  const list = filteredRecords.value
+  const i = list.findIndex(x => x.id === row.id)
+  const next = i >= 0 ? list[i + 1] : null
+  clearTimeout(noPopTimer)
+  if (next) {
+    noPopId.value = null
+    await nextTick()
+    noPopId.value = next.id
+    focusNo(next.id)
+    noPopTimer = setTimeout(() => { noPopId.value = null }, 2600)
+  } else {
+    noPopId.value = null
   }
-  try {
-    const r = await http.get(`/student/lookup/${encodeURIComponent(no)}`)
-    if (r?.match) {
-      row.studentName = r.match.name || ''
-      row.className = r.match.className || ''
-      ElMessage.success(`考号 ${no}：${r.match.name || ''}（${r.match.className || ''}）`)
-      if (r.next) {
-        ElMessage({
-          message: `下一个考生：${r.next.studentNo} ${r.next.name || ''}（${r.next.className || ''}）`,
-          type: 'info', duration: 2500,
-        })
-      }
-      focusName(row.id)
-    } else {
-      row.studentName = '待确认'
-      row.className = '待确认'
-      ElMessage.warning(`考号 ${no} 不在考生表中：请核对修正，或先到「考生管理」导入该考生`)
-    }
-  } catch (e) { /* 拦截器已提示 */ }
 }
 
 // ---------- 导出 ----------
