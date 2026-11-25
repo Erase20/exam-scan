@@ -574,7 +574,17 @@ async function viewRecord(id) {
   } catch (e) { /* 拦截器已提示 */ }
 }
 
-/** 保存分数修改：全量提交，后端按明细重算客观/主观/总分 */
+/** 焦点跳到第一题得分框（自动载入下一份后从头继续改） */
+function focusFirstScore() {
+  nextTick(() => {
+    const comp = scoreRefs[0]
+    const input = comp?.$el?.querySelector?.('input')
+    if (comp?.focus) { try { comp.focus() } catch (e) { /* 老版本组件无 focus */ } }
+    if (input) { input.focus(); input.select() }
+  })
+}
+
+/** 保存分数修改：全量提交，后端按明细重算客观/主观/总分；保存后自动载入下一份待改答卷（从头继续） */
 async function saveScores() {
   if (!result.value?.gradeId) return
   savingScore.value = true
@@ -586,7 +596,20 @@ async function saveScores() {
     result.value.objectiveScore = g.objectiveScore
     result.value.totalScore = g.totalScore
     ElMessage.success(`分数已保存：总分 ${g.totalScore} / ${g.fullScore}`)
-    loadRecords()
+    await loadRecords()
+    // 自动跳到下一个待改（未确认）学生的答卷，跳过已确认的；筛选范围内找完为止
+    const list = filteredRecords.value
+    const i = list.findIndex(r => r.id === Number(result.value.gradeId))
+    for (let j = i + 1; j < list.length; j++) {
+      const r = list[j]
+      if (r.status !== 'CONFIRMED') {
+        await viewRecord(r.id)
+        focusFirstScore()
+        ElMessage.info(`已载入下一份待改答卷：${r.studentName || '姓名待确认'}（${r.studentNo || '考号未识别'}），焦点已在第一题`)
+        return
+      }
+    }
+    ElMessage.success('当前筛选范围内已没有待改的答卷')
   } finally {
     savingScore.value = false
   }
