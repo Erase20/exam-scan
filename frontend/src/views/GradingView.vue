@@ -807,13 +807,12 @@ function setNoRef(id, el) {
 }
 
 function focusNo(id) {
-  setTimeout(() => {
-    const el = noInputRefs[id]
-    if (!el) return
-    el.focus?.()
-    const input = el.$el?.querySelector?.('input')
-    input?.select?.()
-  }, 80)
+  const el = noInputRefs[id]
+  if (!el) return
+  el.focus?.()
+  const input = el.$el?.querySelector?.('input')
+  input?.focus?.()
+  input?.select?.()
 }
 
 /**
@@ -822,13 +821,14 @@ function focusNo(id) {
  * 考号截图已常驻显示在考号列中，直接对照核对，无需额外提示。
  */
 async function fixNo(row) {
-  await saveInfo(row)
+  // 焦点先行：回车瞬间跳到下一个考号框（本地操作零延迟），保存请求后台异步进行
   const list = filteredRecords.value
   const i = list.findIndex(x => x.id === row.id)
   const next = i >= 0 ? list[i + 1] : null
   if (next) {
     focusNo(next.id)
   }
+  saveInfo(row)
 }
 
 // ---------- 导出 ----------
