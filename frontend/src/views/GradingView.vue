@@ -262,6 +262,7 @@
                           trigger="manual" :popper-style="{ padding: '8px' }">
                 <template #reference>
                   <el-input v-model="row.studentNo" size="small" placeholder="修正考号后按回车"
+                            class="rec-no-input"
                             :class="{ 'stu-warn': !row.studentName }"
                             :ref="el => setNoRef(row.id, el)"
                             @change="saveInfo(row)" @keyup.enter="fixNo(row)" />
@@ -743,7 +744,13 @@ let seenRecordIds = null   // 已展示过的记录，用于发现新记录（�
 
 async function loadRecords() {
   const list = await http.get('/grading/list').catch(() => [])
-  records.value = list || []
+  // 轮询刷新合并：正在考号框输入时（考号框聚焦中），保留本地行的考生信息字段，
+  // 否则输入到一半的考号会被服务器值覆盖打回原形
+  const editingNo = document.activeElement?.classList?.contains('rec-no-input')
+  records.value = (list || []).map(s => {
+    const local = editingNo && (records.value || []).find(r => r.id === s.id)
+    return local ? { ...s, studentNo: local.studentNo, studentName: local.studentName, className: local.className } : s
+  })
   // 班级下拉选项随记录动态更新（筛选框保留用户已选值）
   // 首次只记基线；之后每发现一条新记录就自动展示到「阅卷结果」区
   if (seenRecordIds === null) {
