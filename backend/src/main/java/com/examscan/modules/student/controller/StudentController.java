@@ -32,6 +32,12 @@ public class StudentController {
         return R.ok(service.list(keyword, className));
     }
 
+    /** 按考号查询考生（match），并返回考生库中紧排在后的下一个考生（next），考号修正联动用 */
+    @GetMapping("/lookup/{no}")
+    public R<Map<String, Object>> lookup(@PathVariable String no) {
+        return R.ok(service.lookup(no));
+    }
+
     @PostMapping
     public R<Student> add(@RequestBody Map<String, String> body) {
         return R.ok(service.add(body.get("studentNo"), body.get("name"),

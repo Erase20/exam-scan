@@ -1470,6 +1470,7 @@ public class GradingService {
         }
         try {
             String no = gs.getStudentNo() == null ? "" : gs.getStudentNo().trim();
+            // 规则：姓名/班级只由考号查询考生库得出，不再按 OCR 姓名反猜考号（避免张冠李戴）
             if (no.matches("\\d{4,8}")) {
                 Student s = studentService.matchByNo(no);
                 if (s != null) {
@@ -1483,16 +1484,6 @@ public class GradingService {
                     }
                     return true;
                 }
-            }
-            Student byName = studentService.matchByName(gs.getStudentName());
-            if (byName != null) {
-                log.info("考号识别未命中考生库，按姓名「{}」匹配到考号 {}", gs.getStudentName(), byName.getStudentNo());
-                gs.setStudentNo(byName.getStudentNo());
-                gs.setStudentName(byName.getName());
-                if (byName.getClassName() != null) {
-                    gs.setClassName(byName.getClassName());
-                }
-                return true;
             }
         } catch (Exception e) {
             log.warn("考生库核对失败（不影响阅卷）: {}", e.getMessage());
@@ -1520,17 +1511,19 @@ public class GradingService {
             String v = studentName.trim();
             gs.setStudentName("待确认".equals(v) || v.isEmpty() ? "待确认" : v);
         }
-        // 人工更正考号后，以考生库为准带出登记的姓名/班级（对应字段未人工填写或仍是占位时才回填）
+        // 规则：姓名/班级一律以考号查询考生库为准（不再采用 OCR 识别值）。
+        // 考号命中 → 强制回填考生库登记的姓名/班级；未命中 → 置为「待确认」由前端提示人工核对。
         String no = gs.getStudentNo();
         if (no != null && no.matches("\\d{4,8}")) {
             Student s = studentService.matchByNo(no);
             if (s != null) {
-                if (studentName == null || "待确认".equals(gs.getStudentName())) {
-                    gs.setStudentName(s.getName());
-                }
-                if (className == null || "待确认".equals(gs.getClassName())) {
+                gs.setStudentName(s.getName());
+                if (s.getClassName() != null) {
                     gs.setClassName(s.getClassName());
                 }
+            } else {
+                gs.setStudentName("待确认");
+                gs.setClassName("待确认");
             }
         }
         gradeSheetMapper.updateById(gs);

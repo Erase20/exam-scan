@@ -213,7 +213,9 @@
         <el-table-column label="班级" width="145">
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:2px">
-              <el-input v-model="row.className" size="small" placeholder="填写" @change="saveInfo(row)" />
+              <el-input v-model="row.className" size="small" readonly
+                        :class="{ 'stu-warn': row.className === '待确认' }"
+                        placeholder="按考号自动填充" />
               <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
                 <template #reference>
                   <el-button size="small" text type="primary" style="padding:0 3px">图</el-button>
@@ -228,7 +230,10 @@
         <el-table-column label="姓名" width="135">
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:2px">
-              <el-input v-model="row.studentName" size="small" placeholder="填写" @change="saveInfo(row)" />
+              <el-input v-model="row.studentName" size="small" readonly
+                        :class="{ 'stu-warn': row.studentName === '待确认' }"
+                        :ref="el => setNameRef(row.id, el)"
+                        placeholder="按考号自动填充" />
               <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
                 <template #reference>
                   <el-button size="small" text type="primary" style="padding:0 3px">图</el-button>
@@ -243,7 +248,9 @@
         <el-table-column label="学号/考号" width="160">
           <template #default="{ row }">
             <div style="display:flex;align-items:center;gap:2px">
-              <el-input v-model="row.studentNo" size="small" placeholder="填写" @change="saveInfo(row)" />
+              <el-input v-model="row.studentNo" size="small" placeholder="修正考号后按回车"
+                        :class="{ 'stu-warn': row.studentName === '待确认' }"
+                        @change="saveInfo(row)" @keyup.enter="fixNo(row)" />
               <el-popover v-if="row.imagePath" placement="left" :width="280" trigger="hover" :show-after="80" :hide-after="120">
                 <template #reference>
                   <el-button size="small" text type="primary" style="padding:0 3px">图</el-button>
@@ -714,15 +721,61 @@ async function loadRecords() {
   }
 }
 
-/** 补录/更正 学号、班级、姓名（输入框失焦/回车即保存；三者一致则阅卷统计自动合并） */
+/** 补录/更正 学号、班级、姓名（失焦即保存；三者一致则阅卷统计自动合并）。返回保存后的记录 */
 async function saveInfo(row) {
   try {
-    await http.post(`/grading/${row.id}/info`, {
+    const gs = await http.post(`/grading/${row.id}/info`, {
       studentNo: row.studentNo || '',
       className: row.className || '',
       studentName: row.studentName || '',
     })
-    ElMessage.success('学号/班级/姓名已保存')
+    if (gs) {
+      row.studentNo = gs.studentNo ?? row.studentNo
+      row.className = gs.className ?? row.className
+      row.studentName = gs.studentName ?? row.studentName
+    }
+    return gs
+  } catch (e) { return null }
+}
+
+// ---------- 考号修正联动（回车即查考生库） ----------
+const nameInputRefs = {}
+function setNameRef(id, el) {
+  if (el) nameInputRefs[id] = el
+}
+function focusName(id) {
+  setTimeout(() => nameInputRefs[id]?.focus?.(), 80)
+}
+
+/**
+ * 考号输入框回车：保存考号 → 查考生库填充姓名/班级 →
+ * 短暂提示下一个考生的考号 → 焦点移到姓名框；不在考生表的考号给出警告提示。
+ */
+async function fixNo(row) {
+  const gs = await saveInfo(row)
+  const no = String(gs?.studentNo ?? row.studentNo ?? '').trim()
+  if (!/^\d{4,8}$/.test(no)) {
+    ElMessage.warning('考号应为 4~8 位数字，请修正后再按回车')
+    return
+  }
+  try {
+    const r = await http.get(`/student/lookup/${encodeURIComponent(no)}`)
+    if (r?.match) {
+      row.studentName = r.match.name || ''
+      row.className = r.match.className || ''
+      ElMessage.success(`考号 ${no}：${r.match.name || ''}（${r.match.className || ''}）`)
+      if (r.next) {
+        ElMessage({
+          message: `下一个考生：${r.next.studentNo} ${r.next.name || ''}（${r.next.className || ''}）`,
+          type: 'info', duration: 2500,
+        })
+      }
+      focusName(row.id)
+    } else {
+      row.studentName = '待确认'
+      row.className = '待确认'
+      ElMessage.warning(`考号 ${no} 不在考生表中：请核对修正，或先到「考生管理」导入该考生`)
+    }
   } catch (e) { /* 拦截器已提示 */ }
 }
 
@@ -836,6 +889,8 @@ onBeforeUnmount(() => {
 
 /* 原图对错标记 */
 .mark-stem { margin-bottom: 8px; padding: 6px 10px; background: #f5f7fa; border-left: 3px solid #409EFF; border-radius: 4px; font-size: 13px; line-height: 1.6; }
+/* 考号不在考生表时的警示样式 */
+.stu-warn :deep(.el-input__inner) { color: #E6A23C; font-weight: 600; }
 .mark-wrap { min-height: 200px; }
 .mark-img-box { position: relative; display: inline-block; max-width: 100%; font-size: 0; }
 .mark-img { max-width: 100%; max-height: 72vh; display: block; border: 1px solid #eee; border-radius: 4px; }

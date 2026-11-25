@@ -399,6 +399,22 @@ public class StudentService {
         return no == null ? null : findByNo(no);
     }
 
+    /**
+     * 阅卷记录考号修正辅助：按考号查询考生，并同时返回考生库中紧排在后的下一个考生
+     * （按考号升序），供老师连续登记多张答题卡时快速核对下一张的考号。
+     */
+    public Map<String, Object> lookup(String studentNo) {
+        String no = trimToNull(studentNo);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("match", no == null ? null : findByNo(no));
+        List<Student> next = no == null ? List.of() : studentMapper.selectList(new LambdaQueryWrapper<Student>()
+                .gt(Student::getStudentNo, no)
+                .orderByAsc(Student::getStudentNo)
+                .last("LIMIT 1"));
+        m.put("next", next.isEmpty() ? null : next.get(0));
+        return m;
+    }
+
     /** 阅卷核对：按姓名精确匹配；仅当库中唯一命中时返回（重名不猜，避免张冠李戴） */
     public Student matchByName(String name) {
         String n = trimToNull(name);
