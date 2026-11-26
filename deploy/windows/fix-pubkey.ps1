@@ -1,8 +1,9 @@
 ﻿# ============================================================
-# v2: 修复服务器端公钥登录被拒
-# 实锤根因（v1 诊断发现）：authorized_keys 公钥行开头被 BOM(U+FEFF) 污染 + 可能含 \r，
-# sshd 无法解析该行导致 Permission denied。
-# v2 改进：修复脚本纯 ASCII + LF 行尾，先清洗 authorized_keys 再验证。
+# v3: 修复服务器端公钥登录被拒
+# 根因链：v1 管道安装把 BOM 带进 authorized_keys 首行 → v2 清洗时
+#         grep "^ssh-" 匹配不到带 BOM 的行 → 文件被清空。
+# v3 方案：公钥 base64 编码后直接内嵌进 ssh 命令重写文件——
+#         无管道、无编码转换，从根上杜绝 BOM/\r 污染。
 # 运行需输入一次服务器密码。
 # ============================================================
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -14,37 +15,23 @@ Get-Content $envFile | ForEach-Object {
 $sshTarget = "$($cfg['SSH_USER'])@$($cfg['SSH_HOST'])"
 $sshPort = $cfg['SSH_PORT']
 
-# 纯 ASCII + LF 行尾（写临时文件再经管道上传，避免编码/换行污染远程脚本）
-$fix = @'
-echo "===== sshd config ====="
-grep -Ei "^#?(PubkeyAuthentication|PermitRootLogin|AuthorizedKeysFile|StrictModes)" /etc/ssh/sshd_config
-echo "===== perms ====="
-ls -ld /root /root/.ssh /root/.ssh/authorized_keys
-echo "===== authorized_keys before ====="
-cat -A /root/.ssh/authorized_keys | head -c 300; echo ""
-echo "===== cleaning ====="
-grep -h "^ssh-" /root/.ssh/authorized_keys | sed "s/\r$//" | sed "1s/^\xef\xbb\xbf//" | sort -u > /root/.ssh/ak.clean
-mv /root/.ssh/ak.clean /root/.ssh/authorized_keys
-chmod 700 /root /root/.ssh
-chmod 600 /root/.ssh/authorized_keys
-restorecon -R /root/.ssh 2>/dev/null && echo "selinux context fixed" || echo "(no selinux, skipped)"
-echo "===== authorized_keys after ====="
-cat -A /root/.ssh/authorized_keys
-if grep -qiE "^PubkeyAuthentication[[:space:]]+no" /etc/ssh/sshd_config; then
-  sed -i "s/^PubkeyAuthentication[[:space:]]\+no/PubkeyAuthentication yes/" /etc/ssh/sshd_config
-  systemctl restart sshd 2>/dev/null || service sshd restart 2>/dev/null || service ssh restart 2>/dev/null
-  echo "pubkey auth enabled, sshd restarted"
-else
-  echo "(pubkey auth not disabled)"
-fi
-echo "FIX_DONE"
-'@
-$tmp = Join-Path $env:TEMP 'exam-scan-fix.sh'
-[IO.File]::WriteAllText($tmp, ($fix -replace "`r`n", "`n") + "`n", (New-Object System.Text.UTF8Encoding $false))
+# 本机公钥 → base64（纯 ASCII，任何编码通道都无损）
+$keyPath = "$env:USERPROFILE\.ssh\id_ed25519.pub"
+if (!(Test-Path $keyPath)) {
+  Write-Host '[错误] 本机公钥不存在，请先运行「首次免密配置.bat」' -ForegroundColor Red
+  Read-Host '回车退出'; exit 1
+}
+$key = (Get-Content $keyPath -Raw).Trim()
+$b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($key + "`n"))
+
+# 远程重写 authorized_keys（PS 单引号拼接，零插值污染；base64 解码写回）
+$cmd = 'mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo ' + $b64 +
+       ' | base64 -d > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && chmod 700 /root /root/.ssh' +
+       ' && (restorecon -R /root/.ssh 2>/dev/null; true)' +
+       ' && echo "===== file check =====" && wc -c ~/.ssh/authorized_keys && cat -A ~/.ssh/authorized_keys && echo REWRITE_DONE'
 
 Write-Host "`nConnecting $sshTarget ... (input server password)" -ForegroundColor Cyan
-Get-Content $tmp -Raw | ssh -p $sshPort -o StrictHostKeyChecking=accept-new $sshTarget "cat > /tmp/exam-scan-fix.sh && sh /tmp/exam-scan-fix.sh; rm -f /tmp/exam-scan-fix.sh"
-Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+ssh -p $sshPort -o StrictHostKeyChecking=accept-new $sshTarget $cmd
 
 Write-Host "`n===== Verify passwordless login =====" -ForegroundColor Cyan
 ssh -p $sshPort -o BatchMode=yes -o ConnectTimeout=10 $sshTarget "echo FREE_PASSWORD_OK && hostname"
