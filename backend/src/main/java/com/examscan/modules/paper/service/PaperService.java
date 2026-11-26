@@ -10,7 +10,9 @@ import com.examscan.modules.paper.dto.AddQuestionsRequest;
 import com.examscan.modules.paper.dto.CustomPaperRequest;
 import com.examscan.modules.paper.dto.PaperConfig;
 import com.examscan.modules.paper.entity.Paper;
+import com.examscan.modules.paper.entity.PaperFolder;
 import com.examscan.modules.paper.entity.PaperItem;
+import com.examscan.modules.paper.mapper.PaperFolderMapper;
 import com.examscan.modules.paper.mapper.PaperItemMapper;
 import com.examscan.modules.paper.mapper.PaperMapper;
 import com.examscan.modules.question.entity.Question;
@@ -41,10 +43,128 @@ public class PaperService {
 
     private final PaperMapper paperMapper;
     private final PaperItemMapper itemMapper;
+    private final PaperFolderMapper folderMapper;
     private final QuestionMapper questionMapper;
     private final AnswerSheetService answerSheetService;
     private final AnswerSheetMapper answerSheetMapper;
     private final ObjectMapper json = new ObjectMapper();
+
+    // ---------------- 试卷文件夹（分类管理） ----------------
+
+    /** 文件夹列表（按创建顺序） */
+    public List<PaperFolder> listFolders() {
+        return folderMapper.selectList(new LambdaQueryWrapper<PaperFolder>().orderByAsc(PaperFolder::getId));
+    }
+
+    /** 新建文件夹（同名拒绝） */
+    public PaperFolder addFolder(String name) {
+        String n = name == null ? "" : name.trim();
+        if (n.isEmpty()) {
+            throw new BizException("文件夹名称不能为空");
+        }
+        if (n.length() > 50) {
+            throw new BizException("文件夹名称过长（不超过 50 字）");
+        }
+        Long dup = folderMapper.selectCount(new LambdaQueryWrapper<PaperFolder>().eq(PaperFolder::getName, n));
+        if (dup != null && dup > 0) {
+            throw new BizException("文件夹「" + n + "」已存在");
+        }
+        PaperFolder f = new PaperFolder();
+        f.setName(n);
+        folderMapper.insert(f);
+        return f;
+    }
+
+    /** 删除文件夹：文件夹内试卷回到未分类 */
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteFolder(Long id) {
+        if (folderMapper.selectById(id) == null) {
+            throw new BizException("文件夹不存在");
+        }
+        for (Paper p : paperMapper.selectList(new LambdaQueryWrapper<Paper>().eq(Paper::getFolderId, id))) {
+            p.setFolderId(null);
+            paperMapper.updateById(p);
+        }
+        folderMapper.deleteById(id);
+    }
+
+    /** 批量归类试卷到文件夹（folderId 为空 = 移出文件夹/未分类） */
+    @Transactional(rollbackFor = Exception.class)
+    public void assignFolder(List<Long> paperIds, Long folderId) {
+        if (paperIds == null || paperIds.isEmpty()) {
+            throw new BizException("请先勾选要归类的试卷");
+        }
+        if (folderId != null && folderMapper.selectById(folderId) == null) {
+            throw new BizException("目标文件夹不存在");
+        }
+        for (Long pid : paperIds) {
+            Paper p = paperMapper.selectById(pid);
+            if (p != null) {
+                p.setFolderId(folderId);
+                paperMapper.updateById(p);
+            }
+        }
+    }
+
+    // ---------------- 试卷合并 ----------------
+
+    /**
+     * 合并两份试卷为新试卷：A 卷在前、B 卷在后（B 的大题号顺延），
+     * 题目分值与选项顺序原样保留，总分自动重算。
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public Paper mergePapers(Long idA, Long idB, String title) {
+        Paper a = paperMapper.selectById(idA);
+        Paper b = paperMapper.selectById(idB);
+        if (a == null || b == null) {
+            throw new BizException("待合并的试卷不存在");
+        }
+        if (a.getId().equals(b.getId())) {
+            throw new BizException("两份试卷不能是同一份");
+        }
+        Paper p = new Paper();
+        p.setTitle((title == null || title.isBlank()) ? a.getTitle() + "+" + b.getTitle() : title.trim());
+        p.setSubject(a.getSubject());
+        p.setGrade(a.getGrade());
+        p.setDuration(a.getDuration() == null ? 90 : a.getDuration());
+        p.setPaperType("MANUAL");
+        p.setStatus("DRAFT");
+        p.setDeleted(0);
+        p.setQuestionCount(0);
+        p.setTotalScore(BigDecimal.ZERO);
+        p.setFolderId(a.getFolderId());
+        paperMapper.insert(p);
+        int maxSec = 0;
+        for (PaperItem it : itemsOf(a.getId())) {
+            copyItem(p.getId(), it, 0);
+            maxSec = Math.max(maxSec, it.getSectionNo() == null ? 0 : it.getSectionNo());
+        }
+        for (PaperItem it : itemsOf(b.getId())) {
+            copyItem(p.getId(), it, maxSec);
+        }
+        recalcTotal(p.getId());
+        return paperMapper.selectById(p.getId());
+    }
+
+    private List<PaperItem> itemsOf(Long paperId) {
+        return itemMapper.selectList(new LambdaQueryWrapper<PaperItem>()
+                .eq(PaperItem::getPaperId, paperId)
+                .orderByAsc(PaperItem::getSectionNo)
+                .orderByAsc(PaperItem::getSortNo));
+    }
+
+    private void copyItem(Long newPaperId, PaperItem src, int secOffset) {
+        PaperItem it = new PaperItem();
+        it.setPaperId(newPaperId);
+        it.setQuestionId(src.getQuestionId());
+        it.setSectionNo((src.getSectionNo() == null ? 1 : src.getSectionNo()) + secOffset);
+        it.setSectionName(src.getSectionName());
+        it.setQType(src.getQType());
+        it.setSortNo(src.getSortNo());
+        it.setScore(src.getScore());
+        it.setOptionOrder(src.getOptionOrder());
+        itemMapper.insert(it);
+    }
 
     /**
      * 自动组卷

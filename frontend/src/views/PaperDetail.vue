@@ -83,12 +83,21 @@
     </template>
 
     <template v-if="!preview">
+    <div class="page-card" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <b>试题多选</b>
+      <span>已选 <b style="color:#409EFF">{{ selCount }}</b> 题</span>
+      <el-button size="small" type="primary" :disabled="!selCount" @click="makeNewPaper">组成新卷</el-button>
+      <el-button size="small" type="danger" :disabled="!selCount" @click="removeSelected">删除所选</el-button>
+      <el-button size="small" text @click="qSel = {}">清空选择</el-button>
+      <span style="font-size:12px;color:#909399">勾选题目可组成新试卷，或从本卷删除（题库不受影响）</span>
+    </div>
     <div v-for="(items, secNo) in sections" :key="secNo" class="page-card">
       <h3 style="margin-top:0">{{ items[0].item.sectionName }}
         <span style="color:#909399; font-size:13px">（共 {{ items.length }} 题）</span>
       </h3>
       <div v-for="(row, idx) in items" :key="row.item.id" class="q-row">
         <div class="q-head">
+          <el-checkbox v-model="qSel[row.item.id]" style="margin-right:2px" />
           <b>{{ idx + 1 }}.</b>
           <el-tag size="small" style="margin:0 8px">{{ typeLabel(row.item.qType) }}</el-tag>
           <el-input-number v-model="row.item.score" size="small" :min="0.5" :max="50" :step="0.5"
@@ -181,9 +190,9 @@ const previewSections = computed(() => Object.entries(sections.value).map(([secN
       const filled = canFill(q.qType) && answers.length && leftover.length === 0 && countBlanks(q.stem) > 0
       if (answers.length && !filled) {
         const ansText = canFill(q.qType) ? leftover.join('；') : (q.answer || '')
-        if (ansText) parts.push('【答案】' + escHtml(ansText))
+        if (ansText) parts.push('<span class="ans-red">【答案】' + escHtml(ansText) + '</span>')
       }
-      if (q.analysis) parts.push((parts.length ? '　' : '') + '【解析】' + escHtml(q.analysis))
+      if (q.analysis) parts.push((parts.length ? '　' : '') + '<span class="ans-analysis">【解析】' + escHtml(q.analysis) + '</span>')
     }
     return {
       key: row.item.id,
@@ -289,6 +298,48 @@ async function load() {
   const d = await http.get(`/paper/${route.params.id}`)
   paper.value = d.paper
   items.value = d.items
+}
+
+// ---------------- 试题多选：组成新卷 / 删除所选 ----------------
+const qSel = ref({})
+const selItems = computed(() => items.value.filter(r => qSel.value[r.item.id]).map(r => r.item))
+const selCount = computed(() => selItems.value.length)
+
+/** 把选中的题目组成一份新试卷（题目与分值原样复制，走 add-questions 新建卷） */
+async function makeNewPaper() {
+  if (!selCount.value) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `把选中的 ${selCount.value} 题组成一份新试卷（题目与分值原样复制）：`, '组成新试卷', {
+        inputValue: `${paper.value.title || '试卷'}-选卷`,
+        inputPlaceholder: '新试卷标题',
+        confirmButtonText: '创建', cancelButtonText: '取消',
+        inputValidator: v => (v && v.trim() && v.trim().length <= 100) ? true : '标题不能为空且不超过 100 字',
+      })
+    const r = await http.post('/paper/add-questions', {
+      questionIds: selItems.value.map(it => it.questionId),
+      newTitle: value.trim(),
+      newSubject: paper.value.subject,
+      newGrade: paper.value.grade,
+    })
+    ElMessage.success(`新试卷已创建：${r.paperTitle}（${r.added} 题${r.skipped ? `，跳过 ${r.skipped} 题重复` : ''}），可到「智能组卷」查看`)
+    qSel.value = {}
+  } catch (e) { /* 取消或拦截器提示 */ }
+}
+
+/** 从本卷删除选中的题目（题库不受影响） */
+async function removeSelected() {
+  const n = selCount.value
+  if (!n) return
+  try {
+    await ElMessageBox.confirm(`从本卷删除选中的 ${n} 题？（题库中的题目不受影响）`, '删除所选', { type: 'warning' })
+  } catch (e) { return }
+  for (const it of selItems.value) {
+    await http.delete(`/paper/item/${it.id}`).catch(() => {})
+  }
+  qSel.value = {}
+  ElMessage.success(`已删除 ${n} 题`)
+  await load()
 }
 
 async function renameTitle() {
@@ -460,6 +511,9 @@ onMounted(load)
 .p-imgs img { max-width: 300px; max-height: 240px; margin: 6px 8px 0 0; border: 1px solid #eee; }
 .p-extra { color: #c00000; font-size: 13px; margin: 2px 0 0 24px; }
 .blank-ans { color: #c00000; font-weight: 600; }
+/* 预览中答案与解析分离突出：答案红色加粗，解析灰字 */
+.ans-red { color: #c00000; font-weight: 700; }
+.ans-analysis { color: #606266; }
 
 @media print {
   .no-print { display: none !important; }

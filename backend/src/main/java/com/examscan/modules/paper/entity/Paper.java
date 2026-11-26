@@ -26,6 +26,8 @@ public class Paper {
     private String configJson;
     private String status;
     private String remark;
+    /** 所属文件夹（分类管理；null=未分类） */
+    private Long folderId;
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createTime;
     @TableField(fill = FieldFill.INSERT_UPDATE)

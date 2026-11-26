@@ -5,6 +5,7 @@ import com.examscan.modules.paper.dto.AddQuestionsRequest;
 import com.examscan.modules.paper.dto.CustomPaperRequest;
 import com.examscan.modules.paper.dto.PaperConfig;
 import com.examscan.modules.paper.entity.Paper;
+import com.examscan.modules.paper.entity.PaperFolder;
 import com.examscan.modules.paper.service.PaperExportService;
 import com.examscan.modules.paper.service.PaperService;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +19,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 @RestController
 @RequestMapping("/api/paper")
@@ -48,6 +50,48 @@ public class PaperController {
     @GetMapping("/list")
     public R<List<Paper>> list() {
         return R.ok(paperService.list());
+    }
+
+    // ---------------- 试卷文件夹（分类管理） ----------------
+
+    /** 文件夹列表 */
+    @GetMapping("/folders")
+    public R<List<PaperFolder>> folders() {
+        return R.ok(paperService.listFolders());
+    }
+
+    /** 新建文件夹 */
+    @PostMapping("/folder")
+    public R<PaperFolder> addFolder(@RequestBody Map<String, String> body) {
+        return R.ok(paperService.addFolder(body.get("name")));
+    }
+
+    /** 删除文件夹（文件夹内试卷回到未分类） */
+    @DeleteMapping("/folder/{id}")
+    public R<Void> deleteFolder(@PathVariable Long id) {
+        paperService.deleteFolder(id);
+        return R.ok();
+    }
+
+    /** 批量归类试卷到文件夹（folderId 为空 = 移出文件夹） */
+    @PostMapping("/assign-folder")
+    public R<Void> assignFolder(@RequestBody Map<String, Object> body) {
+        List<?> raw = (List<?>) body.get("paperIds");
+        List<Long> ids = raw == null ? List.of()
+                : raw.stream().filter(Objects::nonNull).map(x -> Long.valueOf(String.valueOf(x))).toList();
+        Object fid = body.get("folderId");
+        Long folderId = fid == null || String.valueOf(fid).isBlank() ? null : Long.valueOf(String.valueOf(fid));
+        paperService.assignFolder(ids, folderId);
+        return R.ok();
+    }
+
+    /** 合并两份试卷为新试卷（A 在前，B 大题号顺延） */
+    @PostMapping("/merge")
+    public R<Paper> merge(@RequestBody Map<String, Object> body) {
+        return R.ok(paperService.mergePapers(
+                Long.valueOf(String.valueOf(body.get("idA"))),
+                Long.valueOf(String.valueOf(body.get("idB"))),
+                (String) body.get("title")));
     }
 
     @GetMapping("/{id}")

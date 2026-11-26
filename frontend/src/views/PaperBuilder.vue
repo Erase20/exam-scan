@@ -185,8 +185,31 @@
     </el-tabs>
 
     <div class="page-card" style="margin-top:16px">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap">
         <h3 style="margin:0">已组试卷</h3>
+        <el-select v-model="curFolder" size="small" style="width:180px">
+          <el-option label="全部试卷" value="all" />
+          <el-option label="未分类" value="none" />
+          <el-option v-for="f in folders" :key="f.id" :label="`📁 ${f.name}`" :value="f.id" />
+        </el-select>
+        <el-button size="small" @click="addFolder">＋ 新建文件夹</el-button>
+        <el-button size="small" type="danger" plain :disabled="typeof curFolder !== 'number'" @click="delFolder">
+          删除当前文件夹
+        </el-button>
+        <el-dropdown @command="assignTo">
+          <el-button size="small" :disabled="!paperSel.length">
+            移入文件夹{{ paperSel.length ? `（${paperSel.length}）` : '' }} ▾
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="">移出（未分类）</el-dropdown-item>
+              <el-dropdown-item v-for="f in folders" :key="f.id" divided :command="f.id">📁 {{ f.name }}</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-button size="small" type="success" :disabled="paperSel.length !== 2" @click="mergePapers">
+          🔗 合并成新卷{{ paperSel.length === 2 ? '' : '（勾选 2 份）' }}
+        </el-button>
         <el-popconfirm
           :title="`确认删除选中的 ${paperSel.length} 份试卷？试卷明细将一并删除`"
           width="260"
@@ -199,7 +222,7 @@
           </template>
         </el-popconfirm>
       </div>
-      <el-table :data="papers" size="small" @selection-change="s => (paperSel = s)">
+      <el-table :data="filteredPapers" size="small" @selection-change="s => (paperSel = s)">
         <el-table-column type="selection" width="42" />
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column label="标题">
@@ -407,6 +430,74 @@ async function loadPapers() {
   papers.value = await http.get('/paper/list').catch(() => [])
 }
 
+// ---------------- 试卷文件夹分类 ----------------
+const folders = ref([])
+const curFolder = ref('all')   // 'all'=全部 | 'none'=未分类 | 文件夹id
+const filteredPapers = computed(() => papers.value.filter(p =>
+  curFolder.value === 'all' ||
+  (curFolder.value === 'none' ? p.folderId == null : p.folderId === curFolder.value)
+))
+
+async function loadFolders() {
+  folders.value = await http.get('/paper/folders').catch(() => [])
+}
+
+async function addFolder() {
+  try {
+    const { value } = await ElMessageBox.prompt('请输入文件夹名称', '新建文件夹', {
+      inputPlaceholder: '如：高一月考、期中复习卷',
+      inputValidator: v => (v && v.trim() && v.trim().length <= 50) ? true : '名称不能为空且不超过 50 字',
+      confirmButtonText: '创建', cancelButtonText: '取消',
+    })
+    const f = await http.post('/paper/folder', { name: value.trim() })
+    await loadFolders()
+    curFolder.value = f.id
+    ElMessage.success('文件夹已创建')
+  } catch (e) { /* 取消或拦截器提示 */ }
+}
+
+async function delFolder() {
+  const f = folders.value.find(x => x.id === curFolder.value)
+  if (!f) return
+  try {
+    await ElMessageBox.confirm(`删除文件夹「${f.name}」？其中的试卷将回到未分类（试卷本身不删除）`, '提示', { type: 'warning' })
+  } catch (e) { return }
+  await http.delete(`/paper/folder/${f.id}`)
+  curFolder.value = 'all'
+  await loadFolders()
+  loadPapers()
+  ElMessage.success('文件夹已删除，其中试卷已回到未分类')
+}
+
+/** 勾选的试卷批量归类到文件夹（folderId 为空 = 移出） */
+async function assignTo(folderId) {
+  try {
+    await http.post('/paper/assign-folder', { paperIds: paperSel.value.map(p => p.id), folderId: folderId ?? null })
+    ElMessage.success(folderId ? '已移入文件夹' : '已移出文件夹（未分类）')
+    loadPapers()
+  } catch (e) { /* 拦截器提示 */ }
+}
+
+/** 勾选恰好 2 份试卷合并为新卷：前卷题目在前，后卷大题号顺延，分值保留 */
+async function mergePapers() {
+  const [a, b] = paperSel.value
+  if (!a || !b) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `将「${a.title}」（${a.questionCount} 题）与「${b.title}」（${b.questionCount} 题）合并为新试卷；前卷题目在前，后卷大题号顺延，分值保留。请输入新试卷标题：`,
+      '合并试卷', {
+        inputValue: `${a.title}+${b.title}`,
+        inputPlaceholder: '新试卷标题',
+        confirmButtonText: '合并', cancelButtonText: '取消',
+        inputValidator: v => (v && v.trim() && v.trim().length <= 100) ? true : '标题不能为空且不超过 100 字',
+      })
+    const p = await http.post('/paper/merge', { idA: a.id, idB: b.id, title: value.trim() })
+    ElMessage.success(`合并完成：${p.title}（共 ${p.questionCount} 题，总分 ${p.totalScore}）`)
+    paperSel.value = []
+    loadPapers()
+  } catch (e) { /* 取消或拦截器提示 */ }
+}
+
 async function renameTitle(row) {
   try {
     const { value } = await ElMessageBox.prompt('请输入新的试卷名称', '修改试卷名称', {
@@ -439,7 +530,7 @@ async function delPaper(id) {
   loadPapers()
 }
 
-onMounted(() => { loadPapers(); loadPool(); loadCourseNos() })
+onMounted(() => { loadPapers(); loadPool(); loadCourseNos(); loadFolders() })
 </script>
 
 <style scoped>

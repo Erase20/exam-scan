@@ -171,6 +171,16 @@ CREATE TABLE paper_item (
 -- ALTER TABLE paper_item ADD COLUMN option_order VARCHAR(60) DEFAULT NULL COMMENT '选项随机重排映射';
 
 -- ------------------------------------------------------------
+-- 试卷文件夹（已组试卷分类管理）——旧库升级执行以下语句
+-- ------------------------------------------------------------
+-- CREATE TABLE IF NOT EXISTS paper_folder (
+--     id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+--     name        VARCHAR(50) NOT NULL,
+--     create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='试卷文件夹';
+-- ALTER TABLE paper ADD COLUMN folder_id BIGINT DEFAULT NULL COMMENT '所属文件夹';
+
+-- ------------------------------------------------------------
 -- 6. 答题卡模板
 -- ------------------------------------------------------------
 DROP TABLE IF EXISTS answer_sheet;

@@ -276,9 +276,12 @@
           <el-switch v-model="wqHideAnswer" active-text="隐藏答案" style="margin-left:auto" />
         </div>
         <div class="wq-stem" :class="{ big: wqFull }"><b>题干：</b>{{ wqInfo.stem || '（无题干）' }}</div>
+        <div v-if="wqInfo.options && wqInfo.options.length" class="wq-opts" :class="{ big: wqFull }">
+          <span v-for="o in wqInfo.options" :key="o.key" class="wq-opt">{{ o.key }}．{{ o.content }}</span>
+        </div>
         <template v-if="!wqHideAnswer">
-          <div class="wq-block"><b>标准答案：</b>{{ wqInfo.answer || '—' }}</div>
-          <div v-if="wqInfo.analysis" class="wq-block"><b>解析：</b>{{ wqInfo.analysis }}</div>
+          <div class="wq-block ans" :class="{ big: wqFull }"><b>标准答案：</b>{{ wqInfo.answer || '—' }}</div>
+          <div v-if="wqInfo.analysis" class="wq-block" :class="{ big: wqFull }"><b>解析：</b>{{ wqInfo.analysis }}</div>
         </template>
         <div v-else class="wq-answer-mask" @click="wqHideAnswer = false">答案已隐藏，点击开关或此处显示标准答案</div>
         <div style="font-weight:600;margin:14px 0 6px">失分考生（{{ wqQ.wrongStudents.length }} 人）</div>
@@ -367,6 +370,12 @@
           </div>
           <div v-if="gdStem" class="gd-stem">
             <b>题干：</b>{{ gdStem }}
+          </div>
+          <div v-if="gdOpts.length" class="gd-opts" :class="{ big: gdFull }">
+            <span v-for="o in gdOpts" :key="o.key">{{ o.key }}．{{ o.content }}</span>
+          </div>
+          <div v-if="gdPicked.standardAnswer" class="gd-ans" :class="{ big: gdFull }">
+            <b>标准答案：</b>{{ gdPicked.standardAnswer }}
           </div>
           <img class="gd-cell-img" :src="`/api/grading/${gdGradeId}/cell/${gdPicked.paperItemId}`" alt="作答截图">
           <div v-if="gdOcrText !== null && gdOcrFor === gdPicked.paperItemId" class="gd-ocr-text">
@@ -505,11 +514,14 @@ async function loadWrongQuestions() {
   const infos = {}
   for (const r of d?.items || []) {
     stems[r.item.id] = String(r.question?.stem || '').replace(/\s+/g, ' ').slice(0, 220)
+    let opts = []
+    try { opts = JSON.parse(r.question?.options || '[]') || [] } catch (e) { opts = [] }
     infos[r.item.id] = {
       stem: String(r.question?.stem || '').trim(),
       answer: r.question?.answer || '',
       analysis: r.question?.analysis || '',
       difficulty: r.question?.difficulty || null,
+      options: opts.filter(o => o && o.content),
     }
   }
   stemMap.value = stems
@@ -578,6 +590,8 @@ const gdOcrLoading = ref(false)
 
 /** 当前选中题的题干（从试卷题目映射取，无则不显示） */
 const gdStem = computed(() => (gdPicked.value && stemMap.value[gdPicked.value.paperItemId]) || '')
+/** 当前选中题的选项（选择/判断题显示，便于对照作答） */
+const gdOpts = computed(() => ((gdPicked.value && wqInfoMap.value[gdPicked.value.paperItemId]) || {}).options || [])
 
 async function openGradeDetail(row, targetQNo) {
   if (!row || !row.id) {
@@ -771,6 +785,21 @@ onMounted(async () => {
   border: 1px dashed #c0c4cc; border-radius: 4px;
   color: #909399; font-size: 13px; cursor: pointer; user-select: none;
 }
+/* 选择/判断题选项列表（错题详情 + 答卷详情共用） */
+.wq-opts, .gd-opts {
+  margin-bottom: 8px; padding: 8px 14px; background: #f8fbff;
+  border: 1px solid #e4e7ed; border-radius: 4px;
+  font-size: 14px; line-height: 2; color: #303133;
+}
+.wq-opts .wq-opt, .gd-opts span { margin-right: 16px; }
+.wq-opts.big, .gd-opts.big {
+  font-size: 20px; font-weight: 600; line-height: 2.2; padding: 14px 20px;
+  background: #ecf5ff; border-color: #b3d8ff;
+}
+/* 标准答案：红色突出；最大化时加粗加大 */
+.gd-ans { color: #c00000; font-weight: 700; font-size: 14px; margin-bottom: 8px; }
+.wq-block.ans { color: #c00000; font-weight: 700; }
+.gd-ans.big, .wq-block.ans.big { font-size: 20px; }
 .wq-block {
   margin-bottom: 8px; padding: 8px 12px; background: #f5f7fa;
   border-left: 3px solid #409EFF; border-radius: 4px;

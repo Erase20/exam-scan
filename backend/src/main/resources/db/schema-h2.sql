@@ -166,3 +166,13 @@ ALTER TABLE grade_sheet ADD COLUMN IF NOT EXISTS class_name VARCHAR(50);
 ALTER TABLE grade_sheet ADD COLUMN IF NOT EXISTS mode VARCHAR(10) DEFAULT 'ocr';
 -- 选项随机重排映射（新位置 i 显示原选项 order[i]；null=未重排）
 ALTER TABLE paper_item ADD COLUMN IF NOT EXISTS option_order VARCHAR(60);
+
+-- ------------------------------------------------------------
+-- 试卷文件夹（已组试卷分类管理）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS paper_folder (
+    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+    name        VARCHAR(50) NOT NULL,
+    create_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+ALTER TABLE paper ADD COLUMN IF NOT EXISTS folder_id BIGINT;
