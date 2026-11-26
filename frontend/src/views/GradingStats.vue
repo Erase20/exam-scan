@@ -368,7 +368,7 @@
             <el-button v-if="!isObjective(gdPicked.qType)" size="small" text type="primary"
                        @click="gdOcr" :loading="gdOcrLoading">OCR 识别文字</el-button>
           </div>
-          <div v-if="gdStem" class="gd-stem">
+          <div v-if="gdStem" class="gd-stem" :class="{ big: gdFull }">
             <b>题干：</b>{{ gdStem }}
           </div>
           <div v-if="gdOpts.length" class="gd-opts" :class="{ big: gdFull }">
@@ -810,7 +810,9 @@ onMounted(async () => {
 .gd-cell { margin-top: 14px; border-top: 1px dashed #ebeef5; padding-top: 10px; }
 .gd-cell-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; font-weight: 600; }
 .gd-cell-img { max-width: 100%; max-height: 320px; border: 1px solid #eee; border-radius: 4px; display: block; margin: 0 auto; }
-.gd-stem { margin: 6px 0 10px; padding: 8px 12px; background: #f5f7fa; border-left: 3px solid #409EFF; border-radius: 4px; font-size: 14px; line-height: 1.7; text-align: left; }
+/* 答卷详情题干：默认加粗加大，最大化（讲评投影）时更大 */
+.gd-stem { margin: 6px 0 10px; padding: 8px 12px; background: #f5f7fa; border-left: 3px solid #409EFF; border-radius: 4px; font-size: 16px; font-weight: 600; line-height: 1.8; text-align: left; }
+.gd-stem.big { font-size: 24px; font-weight: 700; padding: 14px 18px; }
 .gd-ocr-text { margin-top: 8px; font-size: 13px; color: #67C23A; background: #f6ffed; padding: 6px 10px; border-radius: 4px; }
 
 @media (max-width: 768px) {

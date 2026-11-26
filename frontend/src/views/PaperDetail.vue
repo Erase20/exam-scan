@@ -510,7 +510,9 @@ onMounted(load)
 .p-opts { color: #333; margin: 2px 0 2px 24px; }
 .p-imgs img { max-width: 300px; max-height: 240px; margin: 6px 8px 0 0; border: 1px solid #eee; }
 .p-extra { color: #c00000; font-size: 13px; margin: 2px 0 0 24px; }
-.blank-ans { color: #c00000; font-weight: 600; }
+/* 所有答案统一红色加粗：题后标注 + 填入空位/括号的答案 */
+.p-extra .ans-red { color: #c00000; font-weight: 700; }
+.blank-ans { color: #c00000; font-weight: 700; }
 /* 预览中答案与解析分离突出：答案红色加粗，解析灰字 */
 .ans-red { color: #c00000; font-weight: 700; }
 .ans-analysis { color: #606266; }
