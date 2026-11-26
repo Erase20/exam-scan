@@ -509,7 +509,7 @@ onMounted(load)
 .p-stem { line-height: 1.9; margin: 6px 0 2px; }
 .p-opts { color: #333; margin: 2px 0 2px 24px; }
 .p-imgs img { max-width: 300px; max-height: 240px; margin: 6px 8px 0 0; border: 1px solid #eee; }
-.p-extra { color: #c00000; font-size: 13px; margin: 2px 0 0 24px; }
+.p-extra { color: #c00000; font-size: 15px; margin: 2px 0 0 24px; }
 /* 所有答案统一红色加粗：题后标注 + 填入空位/括号的答案 */
 .p-extra .ans-red { color: #c00000; font-weight: 700; }
 .blank-ans { color: #c00000; font-weight: 700; }
