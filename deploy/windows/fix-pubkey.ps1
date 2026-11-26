@@ -1,10 +1,9 @@
 ﻿# ============================================================
-# 修复服务器端公钥登录被拒问题（公钥已写入但验证不通过时使用）
-# 自动检查并修复三大常见原因：
-#   1. /root、/root/.ssh、authorized_keys 权限过宽（sshd StrictModes 拒绝）
-#   2. SELinux 安全上下文错误（CentOS 常见）
-#   3. sshd_config 禁用了公钥登录（PubkeyAuthentication no）
-# 运行需输入一次服务器密码；结束后自动验证免密是否已通。
+# v2: 修复服务器端公钥登录被拒
+# 实锤根因（v1 诊断发现）：authorized_keys 公钥行开头被 BOM(U+FEFF) 污染 + 可能含 \r，
+# sshd 无法解析该行导致 Permission denied。
+# v2 改进：修复脚本纯 ASCII + LF 行尾，先清洗 authorized_keys 再验证。
+# 运行需输入一次服务器密码。
 # ============================================================
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $envFile = Join-Path $root 'deploy\windows\aliyun.env'
@@ -15,39 +14,43 @@ Get-Content $envFile | ForEach-Object {
 $sshTarget = "$($cfg['SSH_USER'])@$($cfg['SSH_HOST'])"
 $sshPort = $cfg['SSH_PORT']
 
+# 纯 ASCII + LF 行尾（写临时文件再经管道上传，避免编码/换行污染远程脚本）
 $fix = @'
-echo "===== sshd 相关配置 ====="
+echo "===== sshd config ====="
 grep -Ei "^#?(PubkeyAuthentication|PermitRootLogin|AuthorizedKeysFile|StrictModes)" /etc/ssh/sshd_config
-echo "===== 权限检查 ====="
-ls -ld /root /root/.ssh 2>&1
-ls -l /root/.ssh/authorized_keys 2>&1
-echo "===== 公钥文件尾部（看是否多行/损坏） ====="
-wc -l /root/.ssh/authorized_keys 2>&1
-tail -c 120 /root/.ssh/authorized_keys; echo ""
-echo "===== sshd 日志尾部（拒绝原因） ====="
-(grep -i "publickey\|authentication" /var/log/secure 2>/dev/null || journalctl -u sshd --no-pager -n 10 2>/dev/null) | tail -8
-echo "===== 开始修复 ====="
-chmod 700 /root 2>/dev/null; chmod 700 /root/.ssh 2>/dev/null
-chmod 600 /root/.ssh/authorized_keys 2>/dev/null
-restorecon -R /root/.ssh 2>/dev/null && echo "SELinux 上下文已修复" || echo "(无 SELinux 或已跳过)"
-if grep -qiE "^PubkeyAuthentication\s+no" /etc/ssh/sshd_config; then
-  sed -i "s/^PubkeyAuthentication\s\+no/PubkeyAuthentication yes/" /etc/ssh/sshd_config
+echo "===== perms ====="
+ls -ld /root /root/.ssh /root/.ssh/authorized_keys
+echo "===== authorized_keys before ====="
+cat -A /root/.ssh/authorized_keys | head -c 300; echo ""
+echo "===== cleaning ====="
+grep -h "^ssh-" /root/.ssh/authorized_keys | sed "s/\r$//" | sed "1s/^\xef\xbb\xbf//" | sort -u > /root/.ssh/ak.clean
+mv /root/.ssh/ak.clean /root/.ssh/authorized_keys
+chmod 700 /root /root/.ssh
+chmod 600 /root/.ssh/authorized_keys
+restorecon -R /root/.ssh 2>/dev/null && echo "selinux context fixed" || echo "(no selinux, skipped)"
+echo "===== authorized_keys after ====="
+cat -A /root/.ssh/authorized_keys
+if grep -qiE "^PubkeyAuthentication[[:space:]]+no" /etc/ssh/sshd_config; then
+  sed -i "s/^PubkeyAuthentication[[:space:]]\+no/PubkeyAuthentication yes/" /etc/ssh/sshd_config
   systemctl restart sshd 2>/dev/null || service sshd restart 2>/dev/null || service ssh restart 2>/dev/null
-  echo "已启用公钥登录并重启 sshd"
+  echo "pubkey auth enabled, sshd restarted"
 else
-  echo "(PubkeyAuthentication 未禁用，无需改配置)"
+  echo "(pubkey auth not disabled)"
 fi
 echo "FIX_DONE"
 '@
+$tmp = Join-Path $env:TEMP 'exam-scan-fix.sh'
+[IO.File]::WriteAllText($tmp, ($fix -replace "`r`n", "`n") + "`n", (New-Object System.Text.UTF8Encoding $false))
 
-Write-Host "`n连接 $sshTarget 诊断并修复（输入服务器密码）..." -ForegroundColor Cyan
-$fix | ssh -p $sshPort -o StrictHostKeyChecking=accept-new $sshTarget "sh -s"
+Write-Host "`nConnecting $sshTarget ... (input server password)" -ForegroundColor Cyan
+Get-Content $tmp -Raw | ssh -p $sshPort -o StrictHostKeyChecking=accept-new $sshTarget "cat > /tmp/exam-scan-fix.sh && sh /tmp/exam-scan-fix.sh; rm -f /tmp/exam-scan-fix.sh"
+Remove-Item $tmp -Force -ErrorAction SilentlyContinue
 
-Write-Host "`n===== 验证免密连接 =====" -ForegroundColor Cyan
+Write-Host "`n===== Verify passwordless login =====" -ForegroundColor Cyan
 ssh -p $sshPort -o BatchMode=yes -o ConnectTimeout=10 $sshTarget "echo FREE_PASSWORD_OK && hostname"
 if ($LASTEXITCODE -eq 0) {
-  Write-Host "`n免密登录已修复成功！回到 AI 助手对话让它继续排查服务器。" -ForegroundColor Green
+  Write-Host "`nPasswordless login FIXED! Go back to the AI assistant to continue server troubleshooting." -ForegroundColor Green
 } else {
-  Write-Host "`n仍未通过——请把本窗口上方【全部输出】复制发给 AI 助手（诊断信息里能看到服务器拒绝的具体原因）。" -ForegroundColor Yellow
+  Write-Host "`nStill failing - copy ALL output above to the AI assistant." -ForegroundColor Yellow
 }
-Read-Host '回车退出'
+Read-Host 'Press Enter to exit'
