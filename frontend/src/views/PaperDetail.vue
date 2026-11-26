@@ -523,26 +523,8 @@ onMounted(load)
 .ans-analysis { color: #606266; }
 .blank-ans { color: #c00000; font-weight: 700; }
 
-/* 单题预览全屏讲评模式：蓝底白框、题干金黄、答案亮红（讲评投影显眼） */
+/* 单题预览全屏时加边框，突出试题区域 */
 .single-sheet:fullscreen {
-  background: #1e5bb8;
-  border: 5px solid #ffffff;
-  padding: 48px 72px;
-  max-width: none;
-  max-height: none;
-  color: #f2f6ff;
+  border: 5px solid #409EFF;
 }
-.single-sheet:fullscreen .p-stem,
-.single-sheet:fullscreen .p-stem b {
-  color: #ffd700;
-  font-weight: 700;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, .55);
-}
-.single-sheet:fullscreen .p-opts { color: #eaf1ff; }
-.single-sheet:fullscreen .p-extra,
-.single-sheet:fullscreen .blank-ans {
-  color: #ff5a5a;
-  font-weight: 700;
-}
-.single-sheet:fullscreen .ans-analysis { color: #c9d6f2; }
 </style>
