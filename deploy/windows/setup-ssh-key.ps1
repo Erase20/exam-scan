@@ -4,7 +4,8 @@
 #       ~/.ssh/authorized_keys（远程 tr 去除 Windows 换行符 \r）→ 测试免密连接。
 # 运行过程中需要输入【最后一次】服务器密码。
 # ============================================================
-$ErrorActionPreference = 'Stop'
+# 注：不用 $ErrorActionPreference='Stop'——它会让 ssh/管道的任何 stderr 输出
+# 直接把脚本崩掉（表现为黑窗口一闪而过）；错误处理由下方 $LASTEXITCODE 判断完成。
 $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $envFile = Join-Path $root 'deploy\windows\aliyun.env'
 
