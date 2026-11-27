@@ -1,0 +1,13 @@
+[Unit]
+Description=exam-scan OCR (RapidOCR)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/exam-scan/ocr-service
+ExecStart=/opt/exam-scan/deploy/linux/ocr-service/.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8801
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
