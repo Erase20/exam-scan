@@ -8,6 +8,8 @@ WorkingDirectory=/opt/exam-scan/ocr-service
 ExecStart=/opt/exam-scan/deploy/linux/ocr-service/.venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port 8801
 Restart=always
 RestartSec=5
+# 内存软限：超过后内核优先把本进程页换出，避免撑爆全局内存触发 OOM killer
+MemoryHigh=900M
 
 [Install]
 WantedBy=multi-user.target

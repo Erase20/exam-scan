@@ -12,10 +12,12 @@
 from __future__ import annotations
 
 import base64
+import functools
 import io
 import json
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional
@@ -56,8 +58,9 @@ def _decode_image(raw: bytes) -> np.ndarray:
     return img
 
 
-def _resize_if_needed(img: np.ndarray, max_side: int = 2400) -> np.ndarray:
-    """超大图先等比缩小，控制识别耗时；A4@300dpi 约 2480x3508"""
+def _resize_if_needed(img: np.ndarray, max_side: int = 2200) -> np.ndarray:
+    """超大图先等比缩小，控制识别耗时与内存峰值；A4@300dpi 约 2480x3508，
+    缩到 2200 长边对 RapidOCR 识别精度无可测影响，numpy 中间副本内存降约 20%"""
     h, w = img.shape[:2]
     long_side = max(h, w)
     if long_side <= max_side:
@@ -359,6 +362,20 @@ def _drop_nested_text_blocks(blocks) -> List[Block]:
 
 
 OCR_WORKERS = max(1, min(6, int(os.environ.get("OCR_WORKERS", 1))))
+
+# 服务器内存只有 1.9G：OCR 处理大图时 RSS 峰值可达 900MB+，多个请求同时推理会
+# 内存叠峰触发 OOM killer 把 python 进程杀掉（表现为"OCR 离线"）。
+# 全局信号量限制同时推理的请求数，内存峰值封顶；排队等待由前端 loading 承担。
+_INFER_SEM = threading.Semaphore(2)
+
+
+def _limit_infer(fn):
+    """端点装饰器：推理体串行化到信号量内执行"""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _INFER_SEM:
+            return fn(*args, **kwargs)
+    return wrapper
 
 
 def _ocr_blocks(img: np.ndarray, blocks, ctx: _PageCtx) -> None:
@@ -685,6 +702,7 @@ def health():
 
 
 @app.post("/ocr/page")
+@_limit_infer
 def ocr_page(
     file: UploadFile = File(...),
     returnCrop: bool = Form(True),
@@ -749,6 +767,7 @@ def ocr_page(
 
 
 @app.post("/ocr/document")
+@_limit_infer
 def ocr_document(
     files: List[UploadFile] = File(...),
     returnCrop: bool = Form(True),
@@ -915,6 +934,7 @@ def _recognize_area(img: np.ndarray, x: int, y: int, w: int, h: int) -> List[dic
 
 
 @app.post("/ocr/regions")
+@_limit_infer
 def ocr_regions(
     file: UploadFile = File(...),
     regions: str = Form(...),
@@ -974,6 +994,7 @@ def ocr_regions(
 
 
 @app.post("/ocr/recognize")
+@_limit_infer
 def ocr_recognize(file: UploadFile = File(...)):
     """纯文字识别（不分区），用于答题卡考号/姓名区域等小图"""
     raw = file.file.read()
@@ -986,6 +1007,7 @@ def ocr_recognize(file: UploadFile = File(...)):
 
 
 @app.post("/ocr/recognize_best")
+@_limit_infer
 def ocr_recognize_best(file: UploadFile = File(...)):
     """高精度识别单题作答区（放大+增强重识别），用于人工打分时参考学生手写答案"""
     raw = file.file.read()
