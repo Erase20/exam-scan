@@ -26,7 +26,11 @@ is_running() {
 }
 
 # ---- OCR ----
-if is_running "$PID_DIR/ocr.pid"; then
+# 优先用 systemd 托管（崩溃自动拉起、服务器重启自动恢复）；单元不存在时回退 nohup
+if systemctl list-unit-files 2>/dev/null | grep -q '^exam-ocr\.service'; then
+  echo "[1/2] 启动 OCR (systemd 托管, 崩溃自愈) ..."
+  systemctl restart exam-ocr
+elif is_running "$PID_DIR/ocr.pid"; then
   echo "[跳过] OCR 已在运行 (PID $(cat "$PID_DIR/ocr.pid"))"
 else
   echo "[1/2] 启动 OCR ($OCR_PORT) ..."

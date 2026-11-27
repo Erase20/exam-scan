@@ -22,7 +22,13 @@ stop_one() {
 }
 
 stop_one "后端" "$PID_DIR/backend.pid"
-stop_one "OCR" "$PID_DIR/ocr.pid"
+
+# OCR：systemd 托管时用 systemctl 停（避免 systemctl 又自动拉起与手动 kill 打架）
+if systemctl list-unit-files 2>/dev/null | grep -q '^exam-ocr\.service'; then
+  systemctl stop exam-ocr 2>/dev/null || true
+else
+  stop_one "OCR" "$PID_DIR/ocr.pid"
+fi
 
 # 兜底：PID 文件丢失时按进程特征清理
 pkill -f "exam-scan-1.0.0.jar" 2>/dev/null || true

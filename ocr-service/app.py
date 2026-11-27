@@ -685,7 +685,7 @@ def health():
 
 
 @app.post("/ocr/page")
-async def ocr_page(
+def ocr_page(
     file: UploadFile = File(...),
     returnCrop: bool = Form(True),
     docId: Optional[str] = Form(None),
@@ -694,7 +694,7 @@ async def ocr_page(
     单页识别：返回图文分区 + 每块文字
     """
     t0 = time.time()
-    raw = await file.read()
+    raw = file.file.read()
     img = _resize_if_needed(_decode_image(raw))
 
     blocks, gray, angle, img, gutter = analyze_layout(img)
@@ -749,7 +749,7 @@ async def ocr_page(
 
 
 @app.post("/ocr/document")
-async def ocr_document(
+def ocr_document(
     files: List[UploadFile] = File(...),
     returnCrop: bool = Form(True),
 ):
@@ -759,7 +759,7 @@ async def ocr_document(
     t0 = time.time()
     pages = []
     for idx, f in enumerate(files):
-        raw = await f.read()
+        raw = f.file.read()
         img = _resize_if_needed(_decode_image(raw))
         blocks, gray, angle, img, gutter = analyze_layout(img)
         h, w = img.shape[:2]
@@ -915,7 +915,7 @@ def _recognize_area(img: np.ndarray, x: int, y: int, w: int, h: int) -> List[dic
 
 
 @app.post("/ocr/regions")
-async def ocr_regions(
+def ocr_regions(
     file: UploadFile = File(...),
     regions: str = Form(...),
 ):
@@ -926,7 +926,7 @@ async def ocr_regions(
     返回每个区域的行结构与拼接文本，供题目切分使用。
     区域面积远小于整页，因此这里做高质量识别（切条带 + 增强重试 + 行带排序）。
     """
-    raw = await file.read()
+    raw = file.file.read()
     img = _decode_image(raw)
     try:
         rl = json.loads(regions)
@@ -974,9 +974,9 @@ async def ocr_regions(
 
 
 @app.post("/ocr/recognize")
-async def ocr_recognize(file: UploadFile = File(...)):
+def ocr_recognize(file: UploadFile = File(...)):
     """纯文字识别（不分区），用于答题卡考号/姓名区域等小图"""
-    raw = await file.read()
+    raw = file.file.read()
     img = _decode_image(raw)
     lines = engine.recognize(img)
     return {
@@ -986,9 +986,9 @@ async def ocr_recognize(file: UploadFile = File(...)):
 
 
 @app.post("/ocr/recognize_best")
-async def ocr_recognize_best(file: UploadFile = File(...)):
+def ocr_recognize_best(file: UploadFile = File(...)):
     """高精度识别单题作答区（放大+增强重识别），用于人工打分时参考学生手写答案"""
-    raw = await file.read()
+    raw = file.file.read()
     img = _decode_image(raw)
     lines = _recognize_best(img, force=True)
     return {
